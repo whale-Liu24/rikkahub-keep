@@ -1,0 +1,154 @@
+name: Build Home Release APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-version: '21'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --install \
+            'platforms;android-37.2' 'platforms;android-37' 'platforms;android-36.1' \
+            'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      - name: Install web-ui dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Build signed Home Release
+        shell: bash
+        env:
+          KEEP_KEYSTORE_BASE64: ${{ secrets.KEEP_KEYSTORE_BASE64 }}
+          KEEP_KEYSTORE_PASSWORD: ${{ secrets.KEEP_KEYSTORE_PASSWORD }}
+          KEEP_KEY_ALIAS: ${{ secrets.KEEP_KEY_ALIAS }}
+          KEEP_KEY_PASSWORD: ${{ secrets.KEEP_KEY_PASSWORD }}
+        run: |
+          umask 077
+          if [[ -e local.properties ]]; then
+            echo '::error::Expected a clean checkout without local.properties.'
+            exit 1
+          fi
+          signing_dir=$(mktemp -d "$RUNNER_TEMP/home-signing.XXXXXX")
+          trap 'rm -f -- local.properties "$signing_dir/home-release.p12"; rmdir -- "$signing_dir"' EXIT
+
+          python3 - "$signing_dir/home-release.p12" <<'PY'
+          import base64
+          import binascii
+          import os
+          import sys
+          from pathlib import Path
+
+          for name in ("KEEP_KEYSTORE_BASE64", "KEEP_KEYSTORE_PASSWORD", "KEEP_KEY_ALIAS", "KEEP_KEY_PASSWORD"):
+              if not os.environ.get(name):
+                  sys.exit(f"::error::Missing repository secret {name}.")
+          try:
+              keystore = base64.b64decode("".join(os.environ["KEEP_KEYSTORE_BASE64"].split()), validate=True)
+          except (binascii.Error, ValueError):
+              sys.exit("::error::KEEP_KEYSTORE_BASE64 is not valid base64.")
+          if not keystore:
+              sys.exit("::error::The decoded keystore is empty.")
+
+          keystore_path = Path(sys.argv[1])
+          keystore_path.write_bytes(keystore)
+
+          def property_value(value):
+              data = value.encode("utf-16-be")
+              return "".join(
+                  f"\\u{int.from_bytes(data[index:index + 2], 'big'):04x}"
+                  for index in range(0, len(data), 2)
+              )
+
+          values = {
+              "storeFile": str(keystore_path),
+              "storePassword": os.environ["KEEP_KEYSTORE_PASSWORD"],
+              "keyAlias": os.environ["KEEP_KEY_ALIAS"],
+              "keyPassword": os.environ["KEEP_KEY_PASSWORD"],
+          }
+          Path("local.properties").write_text(
+              "".join(f"{name}={property_value(value)}\n" for name, value in values.items()),
+              encoding="ascii",
+          )
+          PY
+
+          unset KEEP_KEYSTORE_BASE64 KEEP_KEYSTORE_PASSWORD KEEP_KEY_ALIAS KEEP_KEY_PASSWORD
+          ./gradlew assembleGithubRelease --no-configuration-cache --no-daemon
+
+      - name: Verify signed APK identity and providers
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/github/release/*-universal-release.apk)
+          if (( ${#apks[@]} != 1 )); then
+            echo '::error::Expected exactly one universal GitHub Release APK.'
+            exit 1
+          fi
+          apk="${apks[0]}"
+          build_tools="$ANDROID_HOME/build-tools/36.0.0"
+          badging=$("$build_tools/aapt2" dump badging "$apk")
+          package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")
+          label=$(sed -n "s/^application-label:'\(.*\)'$/\1/p" <<< "$badging")
+          if [[ "$package" != 'me.rerere.rikkahub.keep' || "$label" != 'Home' ]]; then
+            echo "::error::Unexpected APK package or label: $package / $label"
+            exit 1
+          fi
+          if grep -E '^application-label-[^:]+:' <<< "$badging" | grep -vE "^application-label-[^:]+:'Home'$"; then
+            echo '::error::A localized APK label is not Home.'
+            exit 1
+          fi
+
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$apk" |
+            python3 -c '
+          import sys
+          import xml.etree.ElementTree as ET
+
+          android = "{http://schemas.android.com/apk/res/android}"
+          package = "me.rerere.rikkahub.keep"
+          manifest = ET.parse(sys.stdin)
+          authorities = set()
+          for provider in manifest.findall("./application/provider"):
+              values = provider.get(android + "authorities", "").split(";")
+              if any(not value.startswith(package + ".") for value in values):
+                  sys.exit("::error::An APK provider authority is outside the Home package.")
+              authorities.update(values)
+
+          expected = {package + "." + name for name in ("fileprovider", "documents", "androidx-startup")}
+          if not expected.issubset(authorities):
+              sys.exit("::error::An expected Home provider authority is missing.")
+          '
+
+          "$build_tools/apksigner" verify "$apk"
+
+      - name: Upload Home Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Home-release-apk
+          path: app/build/outputs/apk/github/release/*-universal-release.apk
+          if-no-files-found: error

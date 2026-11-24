@@ -111,10 +111,11 @@ jobs:
           files: dist/*
 
       - name: Upload to Google Play
+        if: vars.HOME_PLAY_PUBLISH == 'true'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: me.rerere.rikkahub
+          packageName: me.rerere.rikkahub.keep
           releaseFiles: app/build/outputs/bundle/playRelease/*.aab
           mappingFile: app/build/outputs/mapping/playRelease/mapping.txt
           releaseName: ${{ steps.version.outputs.version }}

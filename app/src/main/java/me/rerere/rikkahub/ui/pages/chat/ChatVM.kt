@@ -12,15 +12,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.analytics.FirebaseAnalytics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -28,7 +25,6 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isEmptyInputMessage
-import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -48,8 +44,6 @@ import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.service.SessionActivity
 import me.rerere.rikkahub.ui.hooks.writeStringPreference
 import me.rerere.rikkahub.ui.hooks.ChatInputState
-import me.rerere.rikkahub.utils.UiState
-import me.rerere.rikkahub.utils.UpdateChecker
 import me.rerere.rikkahub.web.ApiException
 import java.util.Locale
 import kotlin.uuid.Uuid
@@ -61,8 +55,6 @@ class ChatVM(
     private val context: Application,
     private val settingsStore: SettingsStore,
     private val chatService: ChatService,
-    val updateChecker: UpdateChecker,
-    private val analytics: FirebaseAnalytics,
     private val filesManager: FilesManager,
     private val favoriteRepository: FavoriteRepository,
     private val backgroundShellManager: BackgroundShellManager,
@@ -220,23 +212,6 @@ class ChatVM(
         }
     }
 
-    // Update checker
-    val updateState = settingsStore.settingsFlow
-        .map { settings ->
-            !BuildConfig.IS_PLAY_STORE &&
-                !settings.init &&
-                settings.displaySetting.updateCheckDisabledUntilEpochMillis <= System.currentTimeMillis()
-        }
-        .distinctUntilChanged()
-        .flatMapLatest { enabled ->
-            if (enabled) updateChecker.updateState else flowOf(UiState.Loading)
-        }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
-            UiState.Loading,
-        )
-
     /**
      * 处理消息发送
      *
@@ -245,14 +220,12 @@ class ChatVM(
      */
     fun handleMessageSend(content: List<UIMessagePart>,answer: Boolean = true) {
         if (content.isEmptyInputMessage()) return
-        analytics.logEvent("ai_send_message", null)
 
         chatService.sendMessage(_conversationId, content, answer)
     }
 
     fun handleMessageEdit(parts: List<UIMessagePart>, messageId: Uuid) {
         if (parts.isEmptyInputMessage()) return
-        analytics.logEvent("ai_edit_message", null)
 
         viewModelScope.launch {
             chatService.editMessage(_conversationId, messageId, parts)
@@ -286,7 +259,6 @@ class ChatVM(
     }
 
     fun regenerateAtMessage(message: UIMessage) {
-        analytics.logEvent("ai_regenerate_at_message", null)
         chatService.regenerateAtMessage(_conversationId, message.id)
     }
 
@@ -295,7 +267,6 @@ class ChatVM(
         approved: Boolean,
         reason: String = ""
     ) {
-        analytics.logEvent("ai_tool_approval", null)
         chatService.handleToolApproval(_conversationId, toolCallId, approved, reason)
     }
 
@@ -303,7 +274,6 @@ class ChatVM(
         toolCallId: String,
         answer: String,
     ) {
-        analytics.logEvent("ai_tool_answer", null)
         chatService.handleToolApproval(_conversationId, toolCallId, approved = true, answer = answer)
     }
 

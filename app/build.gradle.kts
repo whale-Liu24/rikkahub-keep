@@ -9,10 +9,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.google.services)
-    alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.baselineprofile)
 }
+
+val homeApplicationId = "me.rerere.rikkahub.keep"
 
 android {
     namespace = "me.rerere.rikkahub"
@@ -23,7 +23,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "me.rerere.rikkahub"
+        applicationId = homeApplicationId
+        resValue("string", "shortcut_target_package", homeApplicationId)
         minSdk = 26
         targetSdk = 37
         versionCode = 198
@@ -65,6 +66,9 @@ android {
                     keyAliasValue != null && keyPasswordValue != null
                 ) {
                     storeFile = file(storeFilePath)
+                    if (storeFilePath.endsWith(".p12", ignoreCase = true)) {
+                        storeType = "PKCS12"
+                    }
                     storePassword = storePasswordValue
                     keyAlias = keyAliasValue
                     keyPassword = keyPasswordValue
@@ -83,13 +87,12 @@ android {
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
         }
         debug {
-            applicationIdSuffix = ".debug"
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
         }
     }
     // 按分发渠道区分：github 是 GitHub Release / 每日构建的 APK，play 是上架 Google Play 的 AAB
-    // 两个渠道共用同一个 applicationId，Play 版不能自更新，相关入口通过 BuildConfig.IS_PLAY_STORE 关闭
+    // 两个渠道共用 Home 的 applicationId，其他渠道差异通过 BuildConfig.IS_PLAY_STORE 区分
     flavorDimensions += "distribution"
     productFlavors {
         create("github") {
@@ -109,6 +112,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
     sourceSets {
         getByName("androidTest").assets.srcDirs("$projectDir/schemas")
@@ -219,11 +223,6 @@ dependencies {
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.androidx.lifecycle.viewmodel.navigation3)
     implementation(libs.androidx.material3.adaptive.navigation3)
-
-    // Firebase
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.analytics)
-    implementation(libs.firebase.crashlytics)
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
