@@ -170,7 +170,7 @@ internal fun ChatListPreview(
 
     // 打开时的阅读位置；概览期间聊天列表不动，记一次就够
     val currentIndex = remember { chatListState.firstVisibleItemIndex }
-    // listState 由外部持有（顶栏胶囊要读它），每次打开都重新定位：停在当前轮的前一轮，让上面露出一点上下文。
+    // 每次打开概览都重新定位到当前轮的前一轮，让上面露出一点上下文。
     // 要等卡片算出来、列表里有内容之后才能滚
     val loaded = loadedRounds != null
     LaunchedEffect(loaded) {
@@ -183,7 +183,7 @@ internal fun ChatListPreview(
         snapshotFlow { searchQuery.trim() }.drop(1).collect { listState.scrollToItem(0) }
     }
 
-    // 搜索框浮在列表上方固定不动；列表顶部留白放进 contentPadding，内容能滚到搜索框和透明标题栏下面并渐隐
+    // 搜索框固定在列表上方，列表内容滚到搜索框下方时渐隐。
     val searchBarTop = innerPadding.calculateTopPadding() + 8.dp
     val listTop = searchBarTop + PreviewSearchBarHeight + 12.dp
     Box(modifier = Modifier.fillMaxSize()) {

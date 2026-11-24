@@ -141,6 +141,7 @@ fun MarkdownBlock(
     modifier: Modifier = Modifier,
     style: TextStyle = LocalTextStyle.current,
     streaming: Boolean = false,
+    blockSpacingScale: Float = 1f,
     onClickCitation: (String) -> Unit = {}
 ) {
     val enableLatexRendering = LocalSettings.current.displaySetting.enableLatexRendering
@@ -149,14 +150,15 @@ fun MarkdownBlock(
     val density = LocalDensity.current
     val quoteColor = MaterialTheme.colorScheme.tertiary
     val defaultTheme = MaterialMarkdownDefaults.theme(style)
-    val theme = remember(defaultTheme, fontSize, density, enableQuoteHighlight, quoteColor) {
+    val blockSpacing = if (fontSize.isSp) with(density) { fontSize.toDp() } else defaultTheme.blockSpacing
+    val theme = remember(defaultTheme, blockSpacing, blockSpacingScale, enableQuoteHighlight, quoteColor) {
         defaultTheme.copy(
             inlineCode = defaultTheme.inlineCode.copy(
                 fontFamily = JetbrainsMono,
                 fontFeatureSettings = "'calt' 0, 'liga' 0, 'clig' 0",
             ),
             // 段落间距跟随字号，调整字体大小时保持比例
-            blockSpacing = if (fontSize.isSp) with(density) { fontSize.toDp() } else defaultTheme.blockSpacing,
+            blockSpacing = blockSpacing * blockSpacingScale,
             quotedText = SpanStyle(color = quoteColor).takeIf { enableQuoteHighlight },
         )
     }

@@ -135,7 +135,7 @@ class BackgroundShellForegroundService : Service() {
     private fun buildNotification() =
         NotificationCompat.Builder(this, CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_rikkahub)
-            .setContentTitle(getString(R.string.app_name))
+            .setContentTitle(getString(R.string.home_app_name))
             .setContentText(getString(R.string.notification_background_shell_running, activeTasks.size))
             .setContentIntent(getConversationPendingIntent(activeTasks.values.last()))
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)

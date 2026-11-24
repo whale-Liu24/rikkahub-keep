@@ -7,11 +7,19 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import me.rerere.rikkahub.data.datastore.ChatFontFamily
 import me.rerere.rikkahub.data.datastore.DisplaySetting
 import java.io.File
+
+internal const val ChatMarkdownBlockSpacingScale = 1.25f
+
+internal fun TextStyle.chatReadingStyle(fontSizeRatio: Float, fontFamily: FontFamily): TextStyle {
+    val scaledFontSize = fontSize * fontSizeRatio
+    return copy(fontSize = scaledFontSize, lineHeight = scaledFontSize * 1.6f, fontFamily = fontFamily)
+}
 
 val LocalChatFontFamily = staticCompositionLocalOf<FontFamily?> { null }
 

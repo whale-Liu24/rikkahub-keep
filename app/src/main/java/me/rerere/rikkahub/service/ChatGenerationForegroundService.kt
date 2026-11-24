@@ -165,7 +165,7 @@ class ChatGenerationForegroundService : Service() {
     private fun buildNotification(generation: ActiveGeneration) =
         NotificationCompat.Builder(this, CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_rikkahub)
-            .setContentTitle(getString(R.string.app_name))
+            .setContentTitle(getString(R.string.home_app_name))
             .setContentText(
                 getString(
                     when (generation.activity) {

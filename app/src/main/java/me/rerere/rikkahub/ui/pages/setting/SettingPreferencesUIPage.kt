@@ -61,7 +61,9 @@ import me.rerere.rikkahub.ui.components.ui.CardGroupValue
 import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceButtons
 import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.theme.ChatMarkdownBlockSpacingScale
 import me.rerere.rikkahub.ui.theme.CustomColors
+import me.rerere.rikkahub.ui.theme.chatReadingStyle
 import me.rerere.rikkahub.ui.theme.rememberChatFontFamily
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
@@ -315,7 +317,7 @@ fun SettingPreferencesUIPage(vm: SettingVM = koinViewModel()) {
                     )
                     formItem(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_font_size_title)) },
-                        trailingContent = { CardGroupValue("${(displaySetting.fontSizeRatio * 100).toInt()}%") },
+                        trailingContent = { CardGroupValue("${(displaySetting.fontSizeRatio * 100).roundToInt()}%") },
                     ) {
                         Slider(
                             value = displaySetting.fontSizeRatio,
@@ -323,7 +325,7 @@ fun SettingPreferencesUIPage(vm: SettingVM = koinViewModel()) {
                                 updateDisplaySetting(displaySetting.copy(fontSizeRatio = it))
                             },
                             valueRange = 0.5f..2f,
-                            steps = 11,
+                            steps = 74,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         // 预览放在凹下去的底色里，和设置项本身区分开
@@ -335,11 +337,10 @@ fun SettingPreferencesUIPage(vm: SettingVM = koinViewModel()) {
                             MarkdownBlock(
                                 content = stringResource(R.string.setting_display_page_font_size_preview),
                                 modifier = Modifier.padding(12.dp),
-                                style = LocalTextStyle.current.copy(
-                                    fontSize = LocalTextStyle.current.fontSize * displaySetting.fontSizeRatio,
-                                    lineHeight = LocalTextStyle.current.lineHeight * displaySetting.fontSizeRatio,
-                                    fontFamily = chatFontFamily
-                                )
+                                style = LocalTextStyle.current.chatReadingStyle(
+                                    displaySetting.fontSizeRatio, chatFontFamily,
+                                ),
+                                blockSpacingScale = ChatMarkdownBlockSpacingScale,
                             )
                         }
                     }

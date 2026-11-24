@@ -193,8 +193,7 @@ fun ChatList(
     }
 }
 
-// 顶部渐隐：消息滚到标题栏下面时逐渐透明，从状态栏一直淡出到标题栏下沿之外，保证标题可读。
-// 让内容自己变透明而不是盖一层背景色，背景图和动态渐变背景才不会被盖住。
+// 概览列表在浮动搜索框下方淡出。
 internal fun Modifier.topFadingEdge(height: Dp): Modifier = this
     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithCache {
@@ -336,7 +335,7 @@ private fun ChatListNormal(
         ChatFontProvider(displaySetting = settings.displaySetting) {
             LazyColumn(
                 state = state,
-                // 顶部留白放进 contentPadding，让消息可以滚动到透明标题栏下面
+                // 保留首条消息的顶栏间距，滚动内容由实底顶栏遮挡。
                 contentPadding = PaddingValues(16.dp) + PaddingValues(
                     top = innerPadding.calculateTopPadding(),
                     bottom = 32.dp + innerPadding.calculateBottomPadding(),
@@ -345,7 +344,6 @@ private fun ChatListNormal(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .fillMaxSize()
-                    .topFadingEdge(innerPadding.calculateTopPadding() + 24.dp)
                     .hazeSource(state = hazeState),
             ) {
             itemsIndexed(

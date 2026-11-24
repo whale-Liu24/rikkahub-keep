@@ -92,7 +92,9 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.modifier.shimmer
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalWorkspaceId
+import me.rerere.rikkahub.ui.theme.ChatMarkdownBlockSpacingScale
 import me.rerere.rikkahub.ui.theme.LocalChatFontFamily
+import me.rerere.rikkahub.ui.theme.chatReadingStyle
 import me.rerere.rikkahub.ui.theme.rememberChatFontFamily
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.openUrl
@@ -147,11 +149,7 @@ fun ChatMessage(
     }
     val settings = LocalSettings.current.displaySetting
     val chatFontFamily = LocalChatFontFamily.current ?: rememberChatFontFamily(settings)
-    val textStyle = LocalTextStyle.current.copy(
-        fontSize = LocalTextStyle.current.fontSize * settings.fontSizeRatio,
-        lineHeight = LocalTextStyle.current.lineHeight * settings.fontSizeRatio,
-        fontFamily = chatFontFamily
-    )
+    val textStyle = LocalTextStyle.current.chatReadingStyle(settings.fontSizeRatio, chatFontFamily)
     var showActionsSheet by remember { mutableStateOf(false) }
     var showSelectCopySheet by remember { mutableStateOf(false) }
     val navController = LocalNavController.current
@@ -431,6 +429,7 @@ private fun MessagePartsBlock(
                                             scope = AssistantAffectScope.USER,
                                             visual = true,
                                         ),
+                                        blockSpacingScale = ChatMarkdownBlockSpacingScale,
                                         onClickCitation = handleClickCitation
                                     )
                                 }
@@ -461,6 +460,7 @@ private fun MessagePartsBlock(
                                                     MarkdownBlock(
                                                         content = paragraph,
                                                         streaming = streamingText && index == paragraphs.lastIndex,
+                                                        blockSpacingScale = ChatMarkdownBlockSpacingScale,
                                                         onClickCitation = handleClickCitation,
                                                     )
                                                 }
@@ -475,6 +475,7 @@ private fun MessagePartsBlock(
                                             visual = true,
                                         ),
                                         streaming = streamingText,
+                                        blockSpacingScale = ChatMarkdownBlockSpacingScale,
                                         onClickCitation = handleClickCitation,
                                         modifier = Modifier
                                             .animateContentSize()

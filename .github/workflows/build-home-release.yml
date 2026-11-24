@@ -272,12 +272,18 @@ jobs:
           badging=$("$build_tools/aapt2" dump badging "$apk")
           package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")
           label=$(sed -n "s/^application-label:'\(.*\)'$/\1/p" <<< "$badging")
-          if [[ "$package" != 'me.rerere.rikkahub.keep' || "$label" != 'Home' ]]; then
+          expected_label=$(sed -nE 's/^[[:space:]]*resValue\("string", "home_app_name", "([^"]+)"\)[[:space:]]*$/\1/p' app/build.gradle.kts)
+          if [[ -z "$expected_label" || "$expected_label" == *$'\n'* ]]; then
+            echo '::error::Expected one home_app_name definition in app/build.gradle.kts.'
+            exit 1
+          fi
+          if [[ "$package" != 'me.rerere.rikkahub.keep' || "$label" != "$expected_label" ]]; then
             echo "::error::Unexpected APK package or label: $package / $label"
             exit 1
           fi
-          if grep -E '^application-label-[^:]+:' <<< "$badging" | grep -vE "^application-label-[^:]+:'Home'$"; then
-            echo '::error::A localized APK label is not Home.'
+          localized_labels=$(sed -nE "s/^application-label-[^:]+:'(.*)'$/\1/p" <<< "$badging")
+          if [[ -n "$localized_labels" ]] && grep -Fvx -- "$expected_label" <<< "$localized_labels"; then
+            echo "::error::A localized APK label differs from home_app_name ($expected_label)."
             exit 1
           fi
 

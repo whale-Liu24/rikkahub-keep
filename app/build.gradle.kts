@@ -24,6 +24,7 @@ android {
 
     defaultConfig {
         applicationId = homeApplicationId
+        resValue("string", "home_app_name", "Home")
         resValue("string", "shortcut_target_package", homeApplicationId)
         minSdk = 26
         targetSdk = 37

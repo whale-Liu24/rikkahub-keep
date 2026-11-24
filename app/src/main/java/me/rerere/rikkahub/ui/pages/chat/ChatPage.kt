@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,13 +40,13 @@ import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -59,7 +60,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ui.components.RikkaConfirmDialog
 import me.rerere.ui.toast.ToastType
-import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Job
@@ -89,7 +89,6 @@ import me.rerere.rikkahub.service.SessionActivity
 import me.rerere.rikkahub.ui.components.ai.BackgroundTasksSheet
 import me.rerere.rikkahub.ui.components.ai.ChatAttachmentPickerActions
 import me.rerere.rikkahub.ui.components.ai.ChatInput
-import me.rerere.rikkahub.ui.components.ai.ChatTopBarCapsule
 import me.rerere.rikkahub.ui.components.ai.FilesPicker
 import me.rerere.rikkahub.ui.components.ai.SearchMode
 import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvider
@@ -332,14 +331,7 @@ private fun ChatPageContent(
         }.orEmpty()
     }
 
-    // 列表滚到标题栏下面时才显示胶囊背景，空页面或在顶部时按钮直接浮在背景上
-    // 概览页有自己的列表，切过去后跟着它判断
     val previewListState = rememberLazyListState()
-    val listScrolledUnderTopBar by remember(chatListState, previewListState) {
-        derivedStateOf {
-            if (previewMode) previewListState.canScrollBackward else chatListState.canScrollBackward
-        }
-    }
 
     TTSAutoPlay(vm = vm, setting = setting, conversation = conversation)
 
@@ -361,8 +353,6 @@ private fun ChatPageContent(
                     conversation = conversation,
                     bigScreen = bigScreen,
                     drawerState = drawerState,
-                    hazeState = hazeState,
-                    showCapsuleBackground = listScrolledUnderTopBar,
                     onNewChat = {
                         navigateToChatPage(navController)
                     },
@@ -640,8 +630,6 @@ private fun TopBar(
     conversation: Conversation,
     drawerState: DrawerState,
     bigScreen: Boolean,
-    hazeState: HazeState,
-    showCapsuleBackground: Boolean,
     onNewChat: () -> Unit,
     onShowOverview: () -> Unit,
     onExport: () -> Unit,
@@ -654,16 +642,15 @@ private fun TopBar(
         onUpdateTitle(it)
     }
 
+    val topBarColor = MaterialTheme.colorScheme.surface.copy(alpha = 1f)
     TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = topBarColor,
+            scrolledContainerColor = topBarColor,
+        ),
         navigationIcon = {
             if (!bigScreen) {
-                ChatTopBarCapsule(
-                    hazeState = hazeState,
-                    displaySetting = settings.displaySetting,
-                    showBackground = showCapsuleBackground,
-                    modifier = Modifier.padding(start = 8.dp, end = 4.dp),
-                ) {
+                Box(modifier = Modifier.padding(start = 8.dp, end = 4.dp)) {
                     IconButton(
                         onClick = {
                             scope.launch { drawerState.open() }
@@ -709,11 +696,9 @@ private fun TopBar(
             }
         },
         actions = {
-            ChatTopBarCapsule(
-                hazeState = hazeState,
-                displaySetting = settings.displaySetting,
-                showBackground = showCapsuleBackground,
+            Row(
                 modifier = Modifier.padding(start = 4.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(
                     onClick = {
