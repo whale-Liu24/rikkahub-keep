@@ -8,33 +8,29 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up JDK 21
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          distribution: jetbrains
+          distribution: 'jetbrains'
           java-version: '21'
         env:
+          # jetbrains 安装器通过 GitHub API 查询版本，带上 token 避免被限流
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Android SDK and build tools
-        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
-        with:
-          packages: >-
-            platform-tools platforms;android-37.2 platforms;android-37 platforms;android-36.1
-            build-tools;36.0.0 ndk;28.2.13676358 cmake;3.22.1
-
-      - uses: pnpm/action-setup@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
@@ -43,6 +39,14 @@ jobs:
       - name: Install web-ui dependencies
         working-directory: web-ui
         run: pnpm install --frozen-lockfile
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
 
       - name: Build signed Home Release
         shell: bash
@@ -100,19 +104,50 @@ jobs:
           PY
 
           unset KEEP_KEYSTORE_BASE64 KEEP_KEYSTORE_PASSWORD KEEP_KEY_ALIAS KEEP_KEY_PASSWORD
+          chmod +x gradlew
           ./gradlew assembleGithubRelease --no-configuration-cache --no-daemon
 
       - name: Verify signed APK identity and providers
         shell: bash
         run: |
-          shopt -s nullglob
-          apks=(app/build/outputs/apk/github/release/*-universal-release.apk)
-          if (( ${#apks[@]} != 1 )); then
-            echo '::error::Expected exactly one universal GitHub Release APK.'
+          apk=$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          output_dir = Path("app/build/outputs/apk/github/release")
+          metadata = json.loads((output_dir / "output-metadata.json").read_text(encoding="utf-8"))
+          if metadata["variantName"] != "githubRelease":
+              raise SystemExit("::error::Expected output metadata for githubRelease.")
+          universal = [entry["outputFile"] for entry in metadata["elements"] if not entry["filters"]]
+          if len(universal) != 1:
+              raise SystemExit("::error::Expected exactly one universal GitHub Release APK.")
+          apk = output_dir / universal[0]
+          if apk.parent != output_dir or apk.suffix != ".apk" or not apk.is_file():
+              raise SystemExit("::error::Universal APK listed in output metadata is missing.")
+          print(apk)
+          PY
+          )
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          build_tools="$sdk_root/build-tools/36.0.0"
+          if [[ ! -x "$build_tools/aapt2" || ! -x "$build_tools/apksigner" ]]; then
+            echo '::error::Android SDK Build-Tools 36.0.0 are missing.'
             exit 1
           fi
-          apk="${apks[0]}"
-          build_tools="$ANDROID_HOME/build-tools/36.0.0"
+
+          apkanalyzer="$sdk_root/cmdline-tools/latest/bin/apkanalyzer"
+          if [[ ! -x "$apkanalyzer" ]]; then
+            apkanalyzer=''
+            for candidate in "$sdk_root"/cmdline-tools/*/bin/apkanalyzer; do
+              if [[ -x "$candidate" ]]; then
+                apkanalyzer="$candidate"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$apkanalyzer" ]]; then
+            echo '::error::apkanalyzer is missing from the runner Android SDK.'
+            exit 1
+          fi
           badging=$("$build_tools/aapt2" dump badging "$apk")
           package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")
           label=$(sed -n "s/^application-label:'\(.*\)'$/\1/p" <<< "$badging")
@@ -125,7 +160,7 @@ jobs:
             exit 1
           fi
 
-          apkanalyzer manifest print "$apk" |
+          "$apkanalyzer" manifest print "$apk" |
             python3 -c '
           import sys
           import xml.etree.ElementTree as ET
@@ -146,10 +181,11 @@ jobs:
           '
 
           "$build_tools/apksigner" verify "$apk"
+          install -D -m 0644 "$apk" "$RUNNER_TEMP/home-release/Home-release.apk"
 
       - name: Upload Home Release APK
         uses: actions/upload-artifact@v4
         with:
           name: Home-release-apk
-          path: app/build/outputs/apk/github/release/*-universal-release.apk
+          path: ${{ runner.temp }}/home-release/Home-release.apk
           if-no-files-found: error
