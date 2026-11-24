@@ -48,7 +48,8 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
 
-      - name: Build signed Home Release
+      - name: Verify Keystore
+        id: keystore
         shell: bash
         env:
           KEEP_KEYSTORE_BASE64: ${{ secrets.KEEP_KEYSTORE_BASE64 }}
@@ -57,7 +58,7 @@ jobs:
           KEEP_KEY_PASSWORD: ${{ secrets.KEEP_KEY_PASSWORD }}
         run: |
           umask 077
-          if [[ -e local.properties ]]; then
+          if [[ -e local.properties || -L local.properties ]]; then
             echo '::error::Expected a clean checkout without local.properties.'
             exit 1
           fi
@@ -68,21 +69,127 @@ jobs:
           import base64
           import binascii
           import os
+          import re
+          import subprocess
           import sys
+          import tempfile
           from pathlib import Path
 
-          for name in ("KEEP_KEYSTORE_BASE64", "KEEP_KEYSTORE_PASSWORD", "KEEP_KEY_ALIAS", "KEEP_KEY_PASSWORD"):
-              if not os.environ.get(name):
-                  sys.exit(f"::error::Missing repository secret {name}.")
-          try:
-              keystore = base64.b64decode("".join(os.environ["KEEP_KEYSTORE_BASE64"].split()), validate=True)
-          except (binascii.Error, ValueError):
-              sys.exit("::error::KEEP_KEYSTORE_BASE64 is not valid base64.")
-          if not keystore:
-              sys.exit("::error::The decoded keystore is empty.")
-
+          store_password = os.environ.get("KEEP_KEYSTORE_PASSWORD", "").strip()
+          key_password = os.environ.get("KEEP_KEY_PASSWORD", "").strip()
+          alias = os.environ.get("KEEP_KEY_ALIAS", "").strip()
           keystore_path = Path(sys.argv[1])
+
+          def fail(message):
+              size = keystore_path.stat().st_size if keystore_path.is_file() else 0
+              print(f"PKCS12 bytes: {size}", file=sys.stderr)
+              print(f"KEEP_KEYSTORE_PASSWORD characters: {len(store_password)}", file=sys.stderr)
+              print(f"KEEP_KEY_PASSWORD characters: {len(key_password)}", file=sys.stderr)
+              print(f"KEEP_KEY_ALIAS characters: {len(alias)}", file=sys.stderr)
+              print(f"Passwords match: {'yes' if store_password == key_password else 'no'}", file=sys.stderr)
+              sys.exit(f"::error::{message}")
+
+          try:
+              encoded = "".join(os.environ.get("KEEP_KEYSTORE_BASE64", "").split())
+              keystore = base64.b64decode(encoded, validate=True)
+          except (binascii.Error, ValueError):
+              fail("keytool not run: invalid KEEP_KEYSTORE_BASE64.")
+          if not keystore:
+              fail("keytool not run: empty keystore.")
           keystore_path.write_bytes(keystore)
+          if not all((store_password, key_password, alias)):
+              fail("keytool not run: an empty signing parameter remains after trimming.")
+
+          def safe_keytool_error(output):
+              # Print only known error text. Raw output can contain the alias or credentials.
+              for line in output.splitlines():
+                  if not line.startswith("keytool error: "):
+                      continue
+                  detail = line.removeprefix("keytool error: ")
+                  if detail in (
+                      "java.io.IOException: keystore password was incorrect",
+                      "java.io.IOException: Invalid keystore format",
+                      "java.security.UnrecoverableKeyException: Cannot recover key",
+                  ):
+                      return line
+                  if re.fullmatch(r"java\.lang\.Exception: Alias <.*> does not exist", detail):
+                      return "keytool error: java.lang.Exception: Alias <redacted> does not exist"
+                  if re.fullmatch(r"java\.lang\.Exception: Alias <.*> has no key", detail):
+                      return "keytool error: java.lang.Exception: Alias <redacted> has no key"
+                  match = re.match(r"(java(?:\.[A-Za-z]+)+\.[A-Za-z]+(?:Exception|Error)):", detail)
+                  if match:
+                      return f"keytool error: {match.group(1)}: [details redacted]"
+              return "keytool failed: no safe error line available."
+
+          keytool = Path(os.environ["JAVA_HOME"]) / "bin" / ("keytool.exe" if os.name == "nt" else "keytool")
+          arguments = [
+              "-J-Duser.language=en", "-J-Duser.country=US",
+              "-keystore", str(keystore_path), "-storetype", "PKCS12",
+              "-alias", alias, "-storepass:env", "KEEP_KEYSTORE_PASSWORD",
+          ]
+          keytool_env = dict(os.environ, KEEP_KEYSTORE_PASSWORD=store_password, KEEP_KEY_PASSWORD=key_password)
+          keytool_env.pop("KEEP_KEYSTORE_BASE64", None)
+          keytool_env.pop("KEEP_KEY_ALIAS", None)
+
+          try:
+              result = subprocess.run(
+                  [str(keytool), "-list", *arguments],
+                  env=keytool_env, capture_output=True, text=True, errors="replace",
+              )
+          except OSError:
+              fail("keytool could not be started.")
+          if result.returncode:
+              fail(safe_keytool_error(result.stdout + "\n" + result.stderr))
+
+          # keytool -list checks the store and alias, but does not decrypt the private key.
+          with tempfile.TemporaryDirectory(dir=keystore_path.parent) as probe_dir:
+              probe = Path(probe_dir) / "VerifyPrivateKey.java"
+              probe.write_text(r"""
+          import java.io.InputStream;
+          import java.nio.file.Files;
+          import java.nio.file.Paths;
+          import java.security.KeyStore;
+          import java.security.PrivateKey;
+          import java.security.UnrecoverableKeyException;
+
+          class VerifyPrivateKey {
+              public static void main(String[] args) throws Exception {
+                  KeyStore store = KeyStore.getInstance("PKCS12");
+                  try (InputStream input = Files.newInputStream(Paths.get(args[0]))) {
+                      store.load(input, System.getenv("KEEP_KEYSTORE_PASSWORD").toCharArray());
+                  }
+                  try {
+                      if (!(store.getKey(args[1], System.getenv("KEEP_KEY_PASSWORD").toCharArray()) instanceof PrivateKey)) {
+                          System.exit(3);
+                      }
+                  } catch (UnrecoverableKeyException error) {
+                      System.exit(2);
+                  }
+              }
+          }
+          """, encoding="ascii")
+              executable_suffix = ".exe" if os.name == "nt" else ""
+              java_bin = keytool.parent
+              try:
+                  compiled = subprocess.run(
+                      [str(java_bin / ("javac" + executable_suffix)), str(probe)],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                  )
+                  if compiled.returncode:
+                      fail("keytool -list passed; the private key check could not be compiled.")
+                  checked = subprocess.run(
+                      [str(java_bin / ("java" + executable_suffix)), "-cp", probe_dir,
+                       "VerifyPrivateKey", str(keystore_path), alias],
+                      env=keytool_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                  )
+              except OSError:
+                  fail("keytool -list passed; the private key check could not be started.")
+              if checked.returncode == 2:
+                  fail("keytool -list passed; Java could not decrypt the private key with KEEP_KEY_PASSWORD.")
+              if checked.returncode == 3:
+                  fail("keytool -list passed; the alias does not contain a private key.")
+              if checked.returncode:
+                  fail("keytool -list passed; the private key check failed.")
 
           def property_value(value):
               data = value.encode("utf-16-be")
@@ -93,9 +200,9 @@ jobs:
 
           values = {
               "storeFile": str(keystore_path),
-              "storePassword": os.environ["KEEP_KEYSTORE_PASSWORD"],
-              "keyAlias": os.environ["KEEP_KEY_ALIAS"],
-              "keyPassword": os.environ["KEEP_KEY_PASSWORD"],
+              "storePassword": store_password,
+              "keyAlias": alias,
+              "keyPassword": key_password,
           }
           Path("local.properties").write_text(
               "".join(f"{name}={property_value(value)}\n" for name, value in values.items()),
@@ -103,9 +210,23 @@ jobs:
           )
           PY
 
-          unset KEEP_KEYSTORE_BASE64 KEEP_KEYSTORE_PASSWORD KEEP_KEY_ALIAS KEEP_KEY_PASSWORD
+          printf 'signing_dir=%s\n' "$signing_dir" >> "$GITHUB_OUTPUT"
+          trap - EXIT
+
+      - name: Build signed Home Release
+        shell: bash
+        run: |
           chmod +x gradlew
           ./gradlew assembleGithubRelease --no-configuration-cache --no-daemon
+
+      - name: Remove temporary signing files
+        if: ${{ always() && steps.keystore.outputs.signing_dir != '' }}
+        shell: bash
+        env:
+          SIGNING_DIR: ${{ steps.keystore.outputs.signing_dir }}
+        run: |
+          rm -f -- local.properties "$SIGNING_DIR/home-release.p12"
+          rmdir -- "$SIGNING_DIR"
 
       - name: Verify signed APK identity and providers
         shell: bash
