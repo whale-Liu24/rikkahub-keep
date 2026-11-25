@@ -38,23 +38,28 @@ fun Instant.toLocalTime(): String {
         .format(localDateTime)
 }
 
-fun LocalDateTime.toLocalString(): String {
-    val locale = Locale.getDefault()
-    val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withLocale(locale)
-    return formatter.format(this)
+private val time24HourMinutes = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT)
+private val time24HourSeconds = DateTimeFormatter.ofPattern("HH:mm:ss", Locale.ROOT)
+
+private fun LocalDateTime.withLocalizedDate(dateStyle: FormatStyle, timeFormatter: DateTimeFormatter): String {
+    val date = DateTimeFormatter.ofLocalizedDate(dateStyle).withLocale(Locale.getDefault()).format(this)
+    return "$date ${timeFormatter.format(this)}"
 }
 
-/**
- * 消息时间显示：当天只显示时间（如 14:30），非当天显示「月日 + 时间」（如 5月20日 14:30）。
- */
-fun LocalDateTime.toMessageTimeString(): String {
-    val locale = Locale.getDefault()
-    return if (this.toLocalDate() == LocalDate.now()) {
-        DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale).format(this)
+fun LocalDateTime.toLocalString(): String =
+    withLocalizedDate(FormatStyle.MEDIUM, time24HourSeconds)
+
+/** 当天只显示时分，其他日期显示本地化日期和时分秒。 */
+fun LocalDateTime.toMessageTimeString(): String =
+    if (toLocalDate() == LocalDate.now()) time24HourMinutes.format(this) else toLocalString()
+
+/** 概览使用短日期，时间精确到分钟。 */
+fun LocalDateTime.toPreviewTimeString(): String =
+    if (toLocalDate() == LocalDate.now()) {
+        time24HourMinutes.format(this)
     } else {
-        this.toLocalString()
+        withLocalizedDate(FormatStyle.SHORT, time24HourMinutes)
     }
-}
 
 fun LocalDate.toLocalString(includeYear: Boolean): String {
     val locale = Locale.getDefault()

@@ -75,11 +75,7 @@ import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.UIAvatar
 import me.rerere.rikkahub.utils.plus
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
-import java.util.Locale
+import me.rerere.rikkahub.utils.toPreviewTimeString
 import kotlin.uuid.Uuid
 
 private data class PreviewMessage(
@@ -549,16 +545,6 @@ private fun AttachmentChip(
             overflow = TextOverflow.Ellipsis,
         )
     }
-}
-
-// 概览里空间有限：当天只显示时间，其他日子用短日期 + 时间，不带秒
-private fun LocalDateTime.toPreviewTimeString(): String {
-    val style = if (toLocalDate() == LocalDate.now()) {
-        DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
-    } else {
-        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
-    }
-    return style.withLocale(Locale.getDefault()).format(this)
 }
 
 private val CodeFenceRegex = Regex("(?:`{3,}|~{3,})[\\w-]*")

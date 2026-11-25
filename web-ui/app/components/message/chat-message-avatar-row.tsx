@@ -20,6 +20,7 @@ function formatMessageTimestamp(createdAt: string, locale?: string): string | nu
   return new Intl.DateTimeFormat(locale || undefined, {
     dateStyle: "medium",
     timeStyle: "medium",
+    hourCycle: "h23",
   }).format(timestamp);
 }
 
