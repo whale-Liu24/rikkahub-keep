@@ -642,7 +642,7 @@ private fun TopBar(
         onUpdateTitle(it)
     }
 
-    val topBarColor = MaterialTheme.colorScheme.surface.copy(alpha = 1f)
+    val topBarColor = MaterialTheme.colorScheme.background.copy(alpha = 1f)
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = topBarColor,

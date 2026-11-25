@@ -592,7 +592,8 @@ private fun ChatMessageBubble(
     val interactionSource = remember { MutableInteractionSource() }
     val pressProgress by animatePressProgress(interactionSource)
     val corner = lerp(BubbleCorner, BubblePressedCorner, pressProgress)
-    val shape = if (role == MessageRole.USER) {
+    val isUserBubble = role == MessageRole.USER
+    val shape = if (isUserBubble) {
         RoundedCornerShape(topStart = corner, topEnd = BubbleTailCorner, bottomEnd = corner, bottomStart = corner)
     } else {
         RoundedCornerShape(topStart = BubbleTailCorner, topEnd = corner, bottomEnd = corner, bottomStart = corner)
@@ -609,8 +610,11 @@ private fun ChatMessageBubble(
                     Modifier
                 },
             )
-            // MarkdownBlock 自带 4dp 的水平内边距
-            .padding(horizontal = 10.dp, vertical = 10.dp),
+            // 助手正文与无气泡消息共用 MarkdownBlock 的 4dp 水平内边距。
+            .padding(
+                horizontal = if (isUserBubble) 10.dp else 0.dp,
+                vertical = if (isUserBubble) 10.dp else 12.dp,
+            ),
     ) {
         CompositionLocalProvider(LocalContentColor provides contentColor) { content() }
     }
