@@ -7,8 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +25,6 @@ import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.contentColorFor
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -56,7 +53,6 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.fastAll
 import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.util.fastForEachIndexed
@@ -195,7 +191,6 @@ fun ChatMessage(
                 model = model,
                 onToolApproval = onToolApproval,
                 onToolAnswer = onToolAnswer,
-                onUserMessageClick = if (message.role == MessageRole.USER) onEdit else null,
             )
 
             message.translation?.let { translation ->
@@ -305,7 +300,6 @@ private fun MessagePartsBlock(
     loading: Boolean,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
-    onUserMessageClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // 消息输出HapticFeedback
@@ -417,7 +411,6 @@ private fun MessagePartsBlock(
                                 ChatMessageBubble(
                                     role = role,
                                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = settings.displaySetting.bubbleOpacity),
-                                    onClick = { onUserMessageClick?.invoke() },
                                     // 用户气泡不占满整行，和助手的回复错开
                                     modifier = Modifier
                                         .padding(start = 24.dp)
@@ -576,40 +569,28 @@ private fun MessagePartsBlock(
 
 private val BubbleCorner = 24.dp
 private val BubbleTailCorner = 6.dp
-private val BubblePressedCorner = 12.dp
 
 /**
- * 消息气泡：大圆角，靠头像一侧的顶角收紧；可点击时按下其余圆角也跟着收紧
+ * 消息气泡：大圆角，靠头像一侧的顶角收紧。
  */
 @Composable
 private fun ChatMessageBubble(
     role: MessageRole,
     color: Color,
     modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressProgress by animatePressProgress(interactionSource)
-    val corner = lerp(BubbleCorner, BubblePressedCorner, pressProgress)
     val isUserBubble = role == MessageRole.USER
     val shape = if (isUserBubble) {
-        RoundedCornerShape(topStart = corner, topEnd = BubbleTailCorner, bottomEnd = corner, bottomStart = corner)
+        RoundedCornerShape(topStart = BubbleCorner, topEnd = BubbleTailCorner, bottomEnd = BubbleCorner, bottomStart = BubbleCorner)
     } else {
-        RoundedCornerShape(topStart = BubbleTailCorner, topEnd = corner, bottomEnd = corner, bottomStart = corner)
+        RoundedCornerShape(topStart = BubbleTailCorner, topEnd = BubbleCorner, bottomEnd = BubbleCorner, bottomStart = BubbleCorner)
     }
     val contentColor = contentColorFor(color)
     Box(
         modifier = modifier
             .clipDrawing(shape)
             .background(color)
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(interactionSource = interactionSource, indication = ripple(), onClick = onClick)
-                } else {
-                    Modifier
-                },
-            )
             // 助手正文与无气泡消息共用 MarkdownBlock 的 4dp 水平内边距。
             .padding(
                 horizontal = if (isUserBubble) 10.dp else 0.dp,

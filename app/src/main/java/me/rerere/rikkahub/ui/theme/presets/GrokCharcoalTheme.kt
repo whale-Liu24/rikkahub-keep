@@ -20,8 +20,8 @@ val GrokCharcoalThemePreset by lazy {
 private val darkScheme = darkColorScheme(
     primary = Color(0xFFC5BFB7),
     onPrimary = Color(0xFF292622),
-    primaryContainer = Color(0xFF403C36),
-    onPrimaryContainer = Color(0xFFF0EAE2),
+    primaryContainer = Color(0xFF242428),
+    onPrimaryContainer = Color(0xFFF0F0F4),
     inversePrimary = Color(0xFF57514A),
     secondary = Color(0xFFC9C3BB),
     onSecondary = Color(0xFF302B26),

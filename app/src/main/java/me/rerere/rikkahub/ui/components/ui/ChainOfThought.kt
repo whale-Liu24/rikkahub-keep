@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEachIndexed
 import me.rerere.hugeicons.HugeIcons
@@ -201,6 +202,7 @@ interface ChainOfThoughtScope {
      * @param onClick 自定义点击行为；设置后优先于展开/折叠逻辑
      * @param collapsedAdaptiveWidth 是否在折叠且内容隐藏时使用自适应宽度
      * @param contentVisible 是否展示内容区域，可与 [expanded] 解耦
+     * @param contentStartPadding 展开内容的起始边距
      * @param content 步骤内容；为 `null` 时步骤不可展开
      */
     @Composable
@@ -213,6 +215,7 @@ interface ChainOfThoughtScope {
         onClick: (() -> Unit)? = null,
         collapsedAdaptiveWidth: Boolean = false,
         contentVisible: Boolean = expanded,
+        contentStartPadding: Dp = 32.dp,
         content: (@Composable () -> Unit)? = null,
     )
 }
@@ -255,6 +258,7 @@ private class ChainOfThoughtScopeImpl(
         onClick: (() -> Unit)?,
         collapsedAdaptiveWidth: Boolean,
         contentVisible: Boolean,
+        contentStartPadding: Dp,
         content: @Composable (() -> Unit)?
     ) {
         ChainOfThoughtStepContent(
@@ -266,6 +270,7 @@ private class ChainOfThoughtScopeImpl(
             expanded = expanded,
             onExpandedChange = onExpandedChange,
             contentVisible = contentVisible,
+            contentStartPadding = contentStartPadding,
             content = content,
         )
     }
@@ -280,7 +285,8 @@ private class ChainOfThoughtScopeImpl(
         expanded: Boolean,
         onExpandedChange: (Boolean) -> Unit,
         contentVisible: Boolean,
-        content: @Composable (() -> Unit)?
+        content: @Composable (() -> Unit)?,
+        contentStartPadding: Dp = 32.dp,
     ) {
         val hasContent = content != null
         val shouldFillMaxWidth = !collapsedAdaptiveWidth || contentVisible
@@ -406,7 +412,7 @@ private class ChainOfThoughtScopeImpl(
                 }
             }
 
-            // 展开内容（缩进对齐 label）
+            // 展开内容由步骤指定起始边距。
             if (contentVisible && hasContent) {
                 Box(
                     modifier = Modifier
@@ -428,7 +434,7 @@ private class ChainOfThoughtScopeImpl(
                                 )
                             }
                         }
-                        .padding(start = 32.dp, top = 4.dp, bottom = 8.dp)
+                        .padding(start = contentStartPadding, top = 4.dp, bottom = 8.dp)
                 ) {
                     content()
                 }

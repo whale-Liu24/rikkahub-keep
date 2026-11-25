@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import me.rerere.ai.provider.Model
@@ -131,10 +132,13 @@ private fun ReasoningContent(
 ) {
     val isPreview = expandState == ReasoningCardState.Preview
     val fontSizeRatio = LocalSettings.current.displaySetting.fontSizeRatio
-    val bodySmall = MaterialTheme.typography.bodySmall
-    val reasoningTextStyle = bodySmall.copy(
-        fontSize = bodySmall.fontSize * fontSizeRatio,
-        lineHeight = bodySmall.lineHeight * fontSizeRatio,
+    val typography = MaterialTheme.typography
+    val reasoningFontSize = (typography.bodyLarge.fontSize.value * 0.90f * fontSizeRatio)
+        .coerceAtLeast(12f).sp
+    val reasoningTextStyle = typography.bodyMedium.copy(
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = reasoningFontSize,
+        lineHeight = reasoningFontSize * 1.55f,
         fontFamily = LocalTextStyle.current.fontFamily,
     )
     Column(
@@ -241,6 +245,7 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
         },
         collapsedAdaptiveWidth = collapsedAdaptiveWidth,
         contentVisible = state.expandState != ReasoningCardState.Collapsed,
+        contentStartPadding = 0.dp,
         content = {
             ReasoningContent(
                 reasoning = reasoning,

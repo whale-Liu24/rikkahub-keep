@@ -3,6 +3,7 @@ package me.rerere.rikkahub.ui.pages.chat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -42,6 +44,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -79,62 +82,20 @@ import java.time.format.FormatStyle
 import java.util.Locale
 import kotlin.uuid.Uuid
 
-/**
- * 概览里的一张卡片：一轮对话 = 一条用户消息 + 后面跟着的助手回复（工具调用会拆成多个节点，这里合并）。
- * 对话开头没有用户消息时（如开场白），[user] 为空。
- */
-private data class PreviewRound(
-    // 这一轮第一个节点的 id，用作列表 key
+private data class PreviewMessage(
     val id: Uuid,
-    // 点击跳转的目标，取这一轮第一个节点
-    val firstIndex: Int,
-    val lastIndex: Int,
-    val user: UIMessage?,
-    val reply: UIMessage?,
-    // 去掉 Markdown 标记、折叠空白后的纯文本，搜索和摘要都用它
-    val userText: String,
-    val replyText: String,
-    val replyParts: List<UIMessagePart>,
+    val index: Int,
+    val message: UIMessage,
+    val text: String,
     val favorite: Boolean,
-    // 压缩检查点单独成一张卡片，userText 是摘要
-    val checkpoint: Boolean,
-) {
-    fun matches(query: String): Boolean =
-        userText.contains(query, ignoreCase = true) || replyText.contains(query, ignoreCase = true)
+)
+
+private fun List<MessageNode>.toPreviewMessages(): List<PreviewMessage> = mapIndexed { index, node ->
+    val message = node.currentMessage
+    PreviewMessage(node.id, index, message, message.toPreviewText(), node.isFavorite)
 }
 
-private fun List<MessageNode>.toPreviewRounds(): List<PreviewRound> {
-    val groups = mutableListOf<MutableList<IndexedValue<MessageNode>>>()
-    forEachIndexed { index, node ->
-        // 检查点本身是 USER 消息会自己开一组；它后面的节点也要另起一组，不能并进检查点卡片
-        val afterCheckpoint = groups.lastOrNull()?.last()?.value?.currentMessage?.isContextCheckpoint == true
-        if (node.currentMessage.role == MessageRole.USER || groups.isEmpty() || afterCheckpoint) {
-            groups.add(mutableListOf())
-        }
-        groups.last().add(IndexedValue(index, node))
-    }
-    return groups.map { group ->
-        val user = group.first().value.currentMessage.takeIf { it.role == MessageRole.USER }
-        val replies = group.map { it.value.currentMessage }.filter { it.role != MessageRole.USER }
-        PreviewRound(
-            id = group.first().value.id,
-            firstIndex = group.first().index,
-            lastIndex = group.last().index,
-            user = user,
-            reply = replies.lastOrNull(),
-            userText = user?.toPreviewText().orEmpty(),
-            replyText = replies.map { it.toPreviewText() }.filter { it.isNotEmpty() }.joinToString(" "),
-            replyParts = replies.flatMap { it.parts },
-            favorite = group.any { it.value.isFavorite },
-            checkpoint = user?.isContextCheckpoint == true,
-        )
-    }
-}
-
-/**
- * 消息概览：聊天页左滑进入，每轮对话一张卡片，点击跳到对应位置。
- * [chatListState] 用来标出当前阅读位置，并在打开时把它滚到可见范围内。
- */
+/** 消息概览按原始消息节点逐条展示，搜索后的列表位置不作为跳转索引。 */
 @Composable
 internal fun ChatListPreview(
     innerPadding: PaddingValues,
@@ -151,14 +112,15 @@ internal fun ChatListPreview(
     // 长对话里逐条做正则清洗很慢，放到后台算；没算完时为 null。
     // 生成中节点每个 chunk 都在变，conflate 掉中间状态，只算最新的
     val nodes by rememberUpdatedState(conversation.messageNodes)
-    val loadedRounds by produceState<List<PreviewRound>?>(initialValue = null) {
+    val loadedMessages by produceState<List<PreviewMessage>?>(initialValue = null, key1 = conversation.id) {
+        value = null
         snapshotFlow { nodes }
             .conflate()
-            .collect { value = withContext(Dispatchers.Default) { it.toPreviewRounds() } }
+            .collect { currentNodes -> value = withContext(Dispatchers.Default) { currentNodes.toPreviewMessages() } }
     }
-    val rounds = loadedRounds.orEmpty()
-    val filtered = remember(rounds, query) {
-        if (query.isEmpty()) rounds else rounds.filter { it.matches(query) }
+    val messages = loadedMessages.orEmpty()
+    val filtered = remember(messages, query) {
+        if (query.isEmpty()) messages else messages.filter { it.text.contains(query, ignoreCase = true) }
     }
 
     val assistant = remember(settings.assistants, conversation.assistantId) {
@@ -169,14 +131,13 @@ internal fun ChatListPreview(
     }
 
     // 打开时的阅读位置；概览期间聊天列表不动，记一次就够
-    val currentIndex = remember { chatListState.firstVisibleItemIndex }
-    // 每次打开概览都重新定位到当前轮的前一轮，让上面露出一点上下文。
-    // 要等卡片算出来、列表里有内容之后才能滚
-    val loaded = loadedRounds != null
-    LaunchedEffect(loaded) {
-        if (!loaded) return@LaunchedEffect
-        val currentRound = rounds.indexOfFirst { currentIndex in it.firstIndex..it.lastIndex }
-        listState.scrollToItem((currentRound - 1).coerceAtLeast(0))
+    val currentIndex = remember(conversation.id) { chatListState.firstVisibleItemIndex }
+    val loaded = loadedMessages != null
+    LaunchedEffect(loaded, conversation.id) {
+        if (!loaded || filtered.isEmpty()) return@LaunchedEffect
+        val currentPosition = filtered.indexOfFirst { it.index >= currentIndex }
+        val position = if (currentPosition < 0) filtered.lastIndex else (currentPosition - 1).coerceAtLeast(0)
+        listState.scrollToItem(position)
     }
     // 搜索框固定在列表外，滚到中间时改搜索词，结果要从头看
     LaunchedEffect(listState) {
@@ -186,7 +147,8 @@ internal fun ChatListPreview(
     // 搜索框固定在列表上方，列表内容滚到搜索框下方时渐隐。
     val searchBarTop = innerPadding.calculateTopPadding() + 8.dp
     val listTop = searchBarTop + PreviewSearchBarHeight + 12.dp
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val bubbleMaxWidth = maxWidth * 0.84f
         LazyColumn(
             state = listState,
             contentPadding = PaddingValues(horizontal = 16.dp) + PaddingValues(
@@ -223,27 +185,32 @@ internal fun ChatListPreview(
                 }
             }
 
-            items(items = filtered, key = { it.id }) { round ->
-                if (round.checkpoint) {
+            items(items = filtered, key = { it.id }) { entry ->
+                val jumpToMessage: () -> Unit = {
+                    val currentMessageIndex = nodes.indexOfFirst { it.id == entry.id }
+                    if (currentMessageIndex >= 0) onJumpToMessage(currentMessageIndex)
+                }
+                if (entry.message.isContextCheckpoint) {
                     PreviewCheckpointCard(
-                        round = round,
+                        entry = entry,
                         query = query,
-                        isCurrent = currentIndex in round.firstIndex..round.lastIndex,
-                        onClick = { onJumpToMessage(round.firstIndex) },
+                        isCurrent = currentIndex == entry.index,
+                        onClick = jumpToMessage,
                         modifier = Modifier.animateItem(),
                     )
-                    return@items
+                } else {
+                    val message = entry.message
+                    PreviewMessageBubble(
+                        entry = entry,
+                        query = query,
+                        assistant = assistant,
+                        model = message.modelId?.let(modelById::get) ?: message.snapshotModel(),
+                        maxWidth = bubbleMaxWidth,
+                        isCurrent = currentIndex == entry.index,
+                        onClick = jumpToMessage,
+                        modifier = Modifier.animateItem(),
+                    )
                 }
-                val reply = round.reply
-                PreviewRoundCard(
-                    round = round,
-                    query = query,
-                    assistant = assistant,
-                    model = reply?.let { it.modelId?.let(modelById::get) ?: it.snapshotModel() },
-                    isCurrent = currentIndex in round.firstIndex..round.lastIndex,
-                    onClick = { onJumpToMessage(round.firstIndex) },
-                    modifier = Modifier.animateItem(),
-                )
             }
         }
 
@@ -251,7 +218,7 @@ internal fun ChatListPreview(
             query = searchQuery,
             onQueryChange = { searchQuery = it },
             resultCount = filtered.size,
-            totalCount = rounds.size,
+            totalCount = messages.size,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = searchBarTop),
         )
     }
@@ -329,48 +296,66 @@ private fun PreviewSearchBar(
 }
 
 @Composable
-private fun PreviewRoundCard(
-    round: PreviewRound,
+private fun PreviewMessageBubble(
+    entry: PreviewMessage,
     query: String,
     assistant: Assistant?,
     model: Model?,
+    maxWidth: Dp,
     isCurrent: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val message = entry.message
+    val isUser = message.role == MessageRole.USER
     val colors = MaterialTheme.colorScheme
-    Surface(
-        onClick = onClick,
+    val bubbleContentColor = if (isUser) colors.onPrimaryContainer else colors.onSurface
+    Box(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = colors.surfaceContainer,
-        border = if (isCurrent) BorderStroke(1.5.dp, colors.primary) else null,
+        contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.widthIn(max = maxWidth),
+            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            // 用户消息：一行
-            val user = round.user
-            if (user != null) {
+            Surface(
+                onClick = onClick,
+                shape = MaterialTheme.shapes.large,
+                color = if (isUser) colors.primaryContainer else colors.surfaceContainerHigh,
+                contentColor = bubbleContentColor,
+                border = if (isCurrent) BorderStroke(1.5.dp, colors.primary) else null,
+            ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (round.userText.isNotEmpty()) {
-                            HighlightedSnippet(
-                                text = round.userText,
+                    if (message.role == MessageRole.ASSISTANT) {
+                        PreviewReplyAvatar(assistant = assistant, model = model)
+                    }
+                    Box(modifier = Modifier.weight(1f, fill = false)) {
+                        when {
+                            entry.text.isNotEmpty() -> HighlightedSnippet(
+                                text = entry.text,
                                 query = query,
-                                maxLines = 1,
-                                style = MaterialTheme.typography.titleSmallEmphasized,
-                                color = colors.onSurface,
+                                maxLines = 3,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = bubbleContentColor,
                             )
-                        } else {
-                            PreviewAttachmentSummary(parts = user.parts)
+
+                            message.parts.hasAttachmentSummary() -> PreviewAttachmentSummary(message.parts)
+
+                            else -> Text(
+                                text = stringResource(
+                                    if (isUser) R.string.user_default_name else R.string.assistant_page_default_assistant
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
-                    if (round.favorite) {
+                    if (entry.favorite) {
                         Icon(
                             imageVector = HugeIcons.FavouriteCircle,
                             contentDescription = null,
@@ -378,38 +363,29 @@ private fun PreviewRoundCard(
                             tint = colors.primary,
                         )
                     }
-                    Text(
-                        text = remember(user.createdAt) {
-                            user.createdAt.toJavaLocalDateTime().toPreviewTimeString()
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.onSurfaceVariant,
-                        maxLines = 1,
-                    )
                 }
             }
-
-            // 助手回复：两行，前面带模型图标区分角色
-            if (round.reply != null && (round.replyText.isNotEmpty() || round.replyParts.hasAttachmentSummary())) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PreviewReplyAvatar(assistant = assistant, model = model)
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (round.replyText.isNotEmpty()) {
-                            HighlightedSnippet(
-                                text = round.replyText,
-                                query = query,
-                                maxLines = 2,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = colors.onSurfaceVariant,
-                            )
-                        } else {
-                            PreviewAttachmentSummary(parts = round.replyParts)
-                        }
-                    }
-                }
-            }
+            PreviewTimestamp(message)
         }
     }
+}
+
+@Composable
+private fun PreviewTimestamp(message: UIMessage, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    val timestamp = remember(message.createdAt) {
+        // 部分导入器用 Unix epoch 表示缺失时间。
+        runCatching {
+            message.createdAt.toJavaLocalDateTime().takeIf { it.year > 1970 }?.toPreviewTimeString()
+        }.getOrNull()
+    } ?: return
+    Text(
+        text = timestamp,
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
 }
 
 /**
@@ -417,7 +393,7 @@ private fun PreviewRoundCard(
  */
 @Composable
 private fun PreviewCheckpointCard(
-    round: PreviewRound,
+    entry: PreviewMessage,
     query: String,
     isCurrent: Boolean,
     onClick: () -> Unit,
@@ -452,19 +428,11 @@ private fun PreviewCheckpointCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                round.user?.let { user ->
-                    Text(
-                        text = remember(user.createdAt) {
-                            user.createdAt.toJavaLocalDateTime().toPreviewTimeString()
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                    )
-                }
+                PreviewTimestamp(entry.message, color = colors.onSecondaryContainer)
             }
-            if (round.userText.isNotEmpty()) {
+            if (entry.text.isNotEmpty()) {
                 HighlightedSnippet(
-                    text = round.userText,
+                    text = entry.text,
                     query = query,
                     maxLines = 2,
                     style = MaterialTheme.typography.bodyMedium,
@@ -593,7 +561,7 @@ private fun LocalDateTime.toPreviewTimeString(): String {
     return style.withLocale(Locale.getDefault()).format(this)
 }
 
-private val CodeFenceRegex = Regex("```[\\w-]*")
+private val CodeFenceRegex = Regex("(?:`{3,}|~{3,})[\\w-]*")
 private val HeadingRegex = Regex("(?m)^\\s{0,3}#{1,6}\\s+")
 private val QuoteRegex = Regex("(?m)^\\s{0,3}>\\s?")
 private val EmphasisRegex = Regex("\\*\\*|__|~~")
@@ -623,7 +591,7 @@ private fun extractMatchingSnippet(text: String, query: String): String {
 
 private const val SnippetContextLength = 24
 
-// 卡片最多显示两行，留足宽屏和小字号的余量
+// 气泡最多显示三行，提前截断长消息以减少排版开销。
 private const val SnippetMaxLength = 300
 
 private fun buildHighlightedText(
