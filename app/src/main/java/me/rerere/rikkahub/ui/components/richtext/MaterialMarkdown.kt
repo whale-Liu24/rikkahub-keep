@@ -81,7 +81,7 @@ fun MaterialMarkdown(
     // 插槽里的组件（代码块、表格工具栏等）用 Material 的 Text，让它们也拿到正文样式
     ProvideTextStyle(resolved) {
         BetterMarkdown(
-            content = content,
+            content = remember(content) { normalizeHomeMarkdown(content) },
             modifier = modifier,
             style = resolved,
             theme = theme,

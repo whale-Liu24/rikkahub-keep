@@ -213,6 +213,9 @@ jobs:
           printf 'signing_dir=%s\n' "$signing_dir" >> "$GITHUB_OUTPUT"
           trap - EXIT
 
+      - name: Run Home Markdown Unit Tests
+        run: ./gradlew :app:testGithubDebugUnitTest --tests "me.rerere.rikkahub.ui.components.richtext.HomeMarkdownNormalizerTest"
+
       - name: Build signed Home Release
         shell: bash
         run: |
