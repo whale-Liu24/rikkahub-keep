@@ -47,7 +47,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalScrollCaptureInProgress
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import dev.chrisbanes.haze.HazeState
@@ -113,10 +112,8 @@ fun ChatList(
     val currentOnPreviewModeChange by rememberUpdatedState(onPreviewModeChange)
     val currentConversation by rememberUpdatedState(conversation)
     val layoutDirection = LocalLayoutDirection.current
-    val layoutDirectionSign = if (layoutDirection == LayoutDirection.Rtl) -1f else 1f
     // 概览页只在露出来的时候组合，平时不占资源
     val showPreview by remember { derivedStateOf { previewProgress.value > 0f } }
-    val showNormal by remember { derivedStateOf { previewProgress.value < 1f } }
 
     Box(
         modifier = Modifier
@@ -131,14 +128,12 @@ fun ChatList(
                 onPreviewModeChange = { currentOnPreviewModeChange(it) },
             ),
     ) {
-        // 两页像翻页一样整体平移：聊天页向左滑出，概览页从右侧跟进
+        // 保持聊天列表在组合中，以便概览期间保留滚动位置并接收跳转。
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    val p = previewProgress.value
-                    translationX = -p * size.width * layoutDirectionSign
-                    alpha = if (showNormal) 1f - p * 0.4f else 0f
+                    alpha = 1f - previewProgress.value
                 },
         ) {
             ChatListNormal(
@@ -174,9 +169,7 @@ fun ChatList(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        val p = previewProgress.value
-                        translationX = (1f - p) * size.width * layoutDirectionSign
-                        alpha = 0.4f + p * 0.6f
+                        alpha = previewProgress.value
                     },
             ) {
                 ChatListPreview(

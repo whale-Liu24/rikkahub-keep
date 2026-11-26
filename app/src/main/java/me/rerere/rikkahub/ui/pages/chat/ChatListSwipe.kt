@@ -1,8 +1,7 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
@@ -23,10 +22,10 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-private val PreviewSwipeSpec = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 500f)
+private val PreviewFadeSpec = tween<Float>(durationMillis = 150)
 
 /**
- * 概览页露出的比例，0 是聊天页，1 是概览页。
+ * 概览页的不透明度，0 是聊天页，1 是概览页。
  * 外部切换 [previewMode]（如顶栏按钮、点击跳转）时动画过去；手势拖动时由 [previewSwipeGesture] 直接驱动。
  */
 @Composable
@@ -34,9 +33,9 @@ internal fun rememberPreviewSwipeProgress(previewMode: Boolean): Animatable<Floa
     val progress = remember { Animatable(if (previewMode) 1f else 0f) }
     LaunchedEffect(previewMode) {
         val target = if (previewMode) 1f else 0f
-        // 松手时手势已经带着速度动画到目标了，这里不要再打断它
+        // 松手时手势已开始向目标淡变，避免重复启动动画。
         if (progress.targetValue != target) {
-            progress.animateTo(target, PreviewSwipeSpec)
+            progress.animateTo(target, PreviewFadeSpec)
         }
     }
     return progress
@@ -110,8 +109,7 @@ internal fun Modifier.previewSwipeGesture(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             progress.animateTo(
                 targetValue = if (target) 1f else 0f,
-                animationSpec = PreviewSwipeSpec,
-                initialVelocity = velocity / width,
+                animationSpec = PreviewFadeSpec,
             )
         }
         if (target != isPreviewMode()) onPreviewModeChange(target)
