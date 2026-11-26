@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="theme_name_home_charcoal">Charcoal</string>
+  <string name="home_preview_whole_word">Word</string>
 </resources>

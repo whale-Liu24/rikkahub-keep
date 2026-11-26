@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
@@ -38,12 +39,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
@@ -103,7 +103,9 @@ internal fun ChatListPreview(
     onJumpToMessage: (Int) -> Unit,
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var wholeWord by rememberSaveable { mutableStateOf(false) }
     val query = searchQuery.trim()
+    val search = remember(query, wholeWord) { HomePreviewSearch(query, wholeWord) }
 
     // 长对话里逐条做正则清洗很慢，放到后台算；没算完时为 null。
     // 生成中节点每个 chunk 都在变，conflate 掉中间状态，只算最新的
@@ -115,8 +117,8 @@ internal fun ChatListPreview(
             .collect { currentNodes -> value = withContext(Dispatchers.Default) { currentNodes.toPreviewMessages() } }
     }
     val messages = loadedMessages.orEmpty()
-    val filtered = remember(messages, query) {
-        if (query.isEmpty()) messages else messages.filter { it.text.contains(query, ignoreCase = true) }
+    val filtered = remember(messages, search) {
+        if (query.isEmpty()) messages else messages.filter { search.matches(it.text) }
     }
 
     val assistant = remember(settings.assistants, conversation.assistantId) {
@@ -137,7 +139,7 @@ internal fun ChatListPreview(
     }
     // 搜索框固定在列表外，滚到中间时改搜索词，结果要从头看
     LaunchedEffect(listState) {
-        snapshotFlow { searchQuery.trim() }.drop(1).collect { listState.scrollToItem(0) }
+        snapshotFlow { searchQuery.trim() to wholeWord }.drop(1).collect { listState.scrollToItem(0) }
     }
 
     // 搜索框固定在列表上方，列表内容滚到搜索框下方时渐隐。
@@ -189,7 +191,7 @@ internal fun ChatListPreview(
                 if (entry.message.isContextCheckpoint) {
                     PreviewCheckpointCard(
                         entry = entry,
-                        query = query,
+                        search = search,
                         isCurrent = currentIndex == entry.index,
                         onClick = jumpToMessage,
                         modifier = Modifier.animateItem(),
@@ -198,7 +200,7 @@ internal fun ChatListPreview(
                     val message = entry.message
                     PreviewMessageBubble(
                         entry = entry,
-                        query = query,
+                        search = search,
                         assistant = assistant,
                         model = message.modelId?.let(modelById::get) ?: message.snapshotModel(),
                         maxWidth = bubbleMaxWidth,
@@ -213,6 +215,8 @@ internal fun ChatListPreview(
         PreviewSearchBar(
             query = searchQuery,
             onQueryChange = { searchQuery = it },
+            wholeWord = wholeWord,
+            onWholeWordChange = { wholeWord = it },
             resultCount = filtered.size,
             totalCount = messages.size,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = searchBarTop),
@@ -227,6 +231,8 @@ private const val PreviewEmptyKey = "PreviewEmpty"
 private fun PreviewSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
+    wholeWord: Boolean,
+    onWholeWordChange: (Boolean) -> Unit,
     resultCount: Int,
     totalCount: Int,
     modifier: Modifier = Modifier,
@@ -239,9 +245,9 @@ private fun PreviewSearchBar(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Row(
-            modifier = Modifier.padding(start = 18.dp, end = 6.dp),
+            modifier = Modifier.padding(start = 12.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(
                 imageVector = HugeIcons.Search01,
@@ -272,11 +278,33 @@ private fun PreviewSearchBar(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            val colors = MaterialTheme.colorScheme
+            Box(
+                modifier = Modifier
+                    .height(48.dp)
+                    .toggleable(value = wholeWord, role = Role.Switch, onValueChange = onWholeWordChange),
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (wholeWord) colors.secondaryContainer else colors.surfaceContainerHigh,
+                    contentColor = if (wholeWord) colors.onSecondaryContainer else colors.onSurfaceVariant,
+                    border = if (wholeWord) null else BorderStroke(1.dp, colors.outlineVariant),
+                ) {
+                    Text(
+                        text = stringResource(R.string.home_preview_whole_word),
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    )
+                }
+            }
             Text(
                 text = if (query.isBlank()) "$totalCount" else "$resultCount / $totalCount",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = if (query.isEmpty()) 12.dp else 0.dp),
+                maxLines = 1,
+                modifier = Modifier.padding(end = if (query.isEmpty()) 6.dp else 0.dp),
             )
             if (query.isNotEmpty()) {
                 IconButton(onClick = { onQueryChange("") }) {
@@ -294,7 +322,7 @@ private fun PreviewSearchBar(
 @Composable
 private fun PreviewMessageBubble(
     entry: PreviewMessage,
-    query: String,
+    search: HomePreviewSearch,
     assistant: Assistant?,
     model: Model?,
     maxWidth: Dp,
@@ -333,7 +361,7 @@ private fun PreviewMessageBubble(
                         when {
                             entry.text.isNotEmpty() -> HighlightedSnippet(
                                 text = entry.text,
-                                query = query,
+                                search = search,
                                 maxLines = 3,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = bubbleContentColor,
@@ -390,7 +418,7 @@ private fun PreviewTimestamp(message: UIMessage, color: Color = MaterialTheme.co
 @Composable
 private fun PreviewCheckpointCard(
     entry: PreviewMessage,
-    query: String,
+    search: HomePreviewSearch,
     isCurrent: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -429,7 +457,7 @@ private fun PreviewCheckpointCard(
             if (entry.text.isNotEmpty()) {
                 HighlightedSnippet(
                     text = entry.text,
-                    query = query,
+                    search = search,
                     maxLines = 2,
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSecondaryContainer.copy(alpha = 0.8f),
@@ -442,21 +470,24 @@ private fun PreviewCheckpointCard(
 @Composable
 private fun HighlightedSnippet(
     text: String,
-    query: String,
+    search: HomePreviewSearch,
     maxLines: Int,
     style: androidx.compose.ui.text.TextStyle,
     color: Color,
 ) {
     val highlightColor = MaterialTheme.colorScheme.tertiaryContainer
     val highlightTextColor = MaterialTheme.colorScheme.onTertiaryContainer
-    val annotated = remember(text, query, highlightColor, highlightTextColor) {
-        buildHighlightedText(
-            // Text 会把整段文字都排版一遍才截到 maxLines，长回复必须先截短
-            text = extractMatchingSnippet(text, query).take(SnippetMaxLength),
-            query = query,
-            highlightColor = highlightColor,
-            highlightTextColor = highlightTextColor,
-        )
+    val annotated = remember(text, search, highlightColor, highlightTextColor) {
+        val snippet = search.snippet(text)
+        buildAnnotatedString {
+            append(snippet.text)
+            val style = SpanStyle(
+                background = highlightColor,
+                color = highlightTextColor,
+                fontWeight = FontWeight.SemiBold,
+            )
+            for (range in snippet.highlights) addStyle(style, range.first, range.last + 1)
+        }
     }
     Text(
         text = annotated,
@@ -560,50 +591,3 @@ private fun UIMessage.toPreviewText(): String = toText()
     .replace(EmphasisRegex, "")
     .replace(WhitespaceRegex, " ")
     .trim()
-
-/**
- * 截取包含搜索词的片段：匹配词前保留一小段上下文，保证三行内能看到匹配位置。
- */
-private fun extractMatchingSnippet(text: String, query: String): String {
-    if (query.isBlank()) return text
-    val matchIndex = text.indexOf(query, ignoreCase = true)
-    if (matchIndex <= SnippetContextLength) return text
-    // 尽量从词边界开始截，免得开头是半个单词
-    val start = text.indexOf(' ', matchIndex - SnippetContextLength).let { space ->
-        if (space in 0 until matchIndex) space + 1 else matchIndex - SnippetContextLength
-    }
-    return "…" + text.substring(start)
-}
-
-private const val SnippetContextLength = 24
-
-// 气泡最多显示三行，提前截断长消息以减少排版开销。
-private const val SnippetMaxLength = 300
-
-private fun buildHighlightedText(
-    text: String,
-    query: String,
-    highlightColor: Color,
-    highlightTextColor: Color,
-): AnnotatedString {
-    if (query.isBlank()) return AnnotatedString(text)
-    return buildAnnotatedString {
-        var startIndex = 0
-        var index = text.indexOf(query, startIndex, ignoreCase = true)
-        while (index >= 0) {
-            append(text.substring(startIndex, index))
-            withStyle(
-                SpanStyle(
-                    background = highlightColor,
-                    color = highlightTextColor,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            ) {
-                append(text.substring(index, index + query.length))
-            }
-            startIndex = index + query.length
-            index = text.indexOf(query, startIndex, ignoreCase = true)
-        }
-        if (startIndex < text.length) append(text.substring(startIndex))
-    }
-}

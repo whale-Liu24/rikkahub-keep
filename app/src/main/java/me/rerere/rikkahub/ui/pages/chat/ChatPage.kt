@@ -69,10 +69,11 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.Menu03
-import me.rerere.hugeicons.stroke.MessageAdd01
+import me.rerere.hugeicons.stroke.MessageCirclePlus
 import me.rerere.hugeicons.stroke.MoreVertical
 import me.rerere.hugeicons.stroke.Share04
 import me.rerere.rikkahub.R
@@ -356,9 +357,10 @@ private fun ChatPageContent(
                     onNewChat = {
                         navigateToChatPage(navController)
                     },
-                    onShowOverview = {
-                        selectionState.selecting = false
-                        previewMode = true
+                    previewMode = previewMode,
+                    onToggleOverview = {
+                        if (!previewMode) selectionState.selecting = false
+                        previewMode = !previewMode
                     },
                     onExport = {
                         // 跟消息上的分享一样进入多选，默认全选，用户可以再挑
@@ -631,7 +633,8 @@ private fun TopBar(
     drawerState: DrawerState,
     bigScreen: Boolean,
     onNewChat: () -> Unit,
-    onShowOverview: () -> Unit,
+    previewMode: Boolean,
+    onToggleOverview: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit,
     onUpdateTitle: (String) -> Unit
@@ -700,16 +703,22 @@ private fun TopBar(
                 modifier = Modifier.padding(start = 4.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = onNewChat) {
+                    Icon(HugeIcons.MessageCirclePlus, stringResource(R.string.chat_page_new_chat))
+                }
                 IconButton(
-                    onClick = {
-                        onNewChat()
-                    }
+                    onClick = onToggleOverview,
+                    enabled = previewMode || conversation.messageNodes.isNotEmpty(),
                 ) {
-                    Icon(HugeIcons.MessageAdd01, "New Message")
+                    Icon(
+                        imageVector = if (previewMode) HugeIcons.Cancel01 else HugeIcons.LeftToRightListBullet,
+                        contentDescription = stringResource(
+                            if (previewMode) R.string.chat_page_cancel else R.string.chat_page_conversation_map
+                        ),
+                    )
                 }
                 ChatPageMenu(
                     enabled = conversation.messageNodes.isNotEmpty(),
-                    onShowOverview = onShowOverview,
                     onExport = onExport,
                     onDelete = onDelete,
                 )
@@ -754,11 +763,10 @@ private fun TopBar(
     }
 }
 
-// 顶栏右侧的会话菜单；空对话没有内容可概览、导出或删除，菜单项全部置灰
+// 空对话没有内容可导出或删除，菜单项全部置灰
 @Composable
 private fun ChatPageMenu(
     enabled: Boolean,
-    onShowOverview: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -801,17 +809,10 @@ private fun ChatPageMenu(
         ) {
             DropdownMenuGroup(shapes = MenuDefaults.groupShape(index = 0, count = 2)) {
                 MenuItem(
-                    text = stringResource(R.string.chat_page_conversation_map),
-                    icon = HugeIcons.LeftToRightListBullet,
-                    index = 0,
-                    count = 2,
-                    onClick = onShowOverview,
-                )
-                MenuItem(
                     text = stringResource(R.string.export_title),
                     icon = HugeIcons.Share04,
-                    index = 1,
-                    count = 2,
+                    index = 0,
+                    count = 1,
                     onClick = onExport,
                 )
             }
