@@ -95,6 +95,7 @@ import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Fullscreen
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.DisplaySetting
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.getQuickMessagesOfAssistant
 import me.rerere.rikkahub.data.files.FilesManager
@@ -149,18 +150,10 @@ fun ChatInput(
     onStopVoiceMode: () -> Unit = {},
 ) {
     val toaster = LocalToaster.current
-    val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
 
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
-    val themeShape = MaterialTheme.shapes.largeIncreased
-    val containerShape = RoundedCornerShape(
-        topStart = themeShape.topStart,
-        topEnd = themeShape.topEnd,
-        bottomEnd = themeShape.bottomEnd,
-        bottomStart = themeShape.bottomStart,
-    )
     val modelListState = rememberModelListState(
         modelId = chatModel?.id,
         providers = settings.providers,
@@ -239,141 +232,125 @@ fun ChatInput(
                 onFinishEdit = onFinishEditQueuedMessage,
                 onResume = onResumeMessageQueue,
             )
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(containerShape)
-                    .chatInputHaze(
-                        hazeState = hazeState,
-                        displaySetting = settings.displaySetting,
-                        containerColor = containerColor,
-                        shape = containerShape,
-                    ),
-                shape = containerShape,
-                tonalElevation = 0.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                color = if (settings.displaySetting.enableBlurEffect) Color.Transparent else containerColor,
+            Column(
+                modifier = Modifier.padding(horizontal = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    if (voiceState.phase != VoicePhase.Off) {
-                        VoiceModeRow(
-                            state = voiceState,
-                            onStop = onStopVoiceMode,
-                            onRetry = { onStartVoiceMode?.invoke() },
-                        )
-                        androidx.compose.material3.HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                        )
-                    }
-                    if (state.messageContent.isNotEmpty()) {
-                        MediaFileInputRow(state = state)
-                    }
-
-                    TextInputRow(
-                        state = state,
-                        assistant = assistant,
-                        completionProviders = completionProviders,
-                        onSendMessage = { sendMessage() },
+                if (voiceState.phase != VoicePhase.Off) {
+                    VoiceModeRow(
+                        state = voiceState,
+                        onStop = onStopVoiceMode,
+                        onRetry = { onStartVoiceMode?.invoke() },
                     )
+                    androidx.compose.material3.HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    )
+                }
+                if (state.messageContent.isNotEmpty()) {
+                    MediaFileInputRow(state = state)
+                }
 
+                TextInputRow(
+                    state = state,
+                    assistant = assistant,
+                    completionProviders = completionProviders,
+                    hazeState = hazeState,
+                    displaySetting = settings.displaySetting,
+                    onSendMessage = { sendMessage() },
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
+                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .weight(1f, fill = false)
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                // Model Picker
-                                ModelSelectorButton(
-                                    state = modelListState,
+                            // Model Picker
+                            ModelSelectorButton(
+                                state = modelListState,
+                                onlyIcon = true,
+                                modifier = Modifier,
+                            )
+
+                            // Reasoning
+                            if (chatModel?.abilities?.contains(ModelAbility.REASONING) == true) {
+                                ReasoningButton(
+                                    reasoningLevel = assistant.reasoningLevel,
+                                    onUpdateReasoningLevel = {
+                                        onUpdateAssistant(assistant.copy(reasoningLevel = it))
+                                    },
                                     onlyIcon = true,
-                                    modifier = Modifier,
-                                )
-
-                                // Reasoning
-                                if (chatModel?.abilities?.contains(ModelAbility.REASONING) == true) {
-                                    ReasoningButton(
-                                        reasoningLevel = assistant.reasoningLevel,
-                                        onUpdateReasoningLevel = {
-                                            onUpdateAssistant(assistant.copy(reasoningLevel = it))
-                                        },
-                                        onlyIcon = true,
-                                    )
-                                }
-                            }
-
-                            if (runningBackgroundTasks > 0) {
-                                BackgroundTasksButton(
-                                    running = runningBackgroundTasks,
-                                    onClick = onShowBackgroundTasks,
                                 )
                             }
                         }
 
-                        ActionIconButton(
-                            onClick = onMoreClick
-                        ) {
-                            Icon(
-                                imageVector = HugeIcons.Add01,
-                                contentDescription = stringResource(R.string.more_options)
+                        if (runningBackgroundTasks > 0) {
+                            BackgroundTasksButton(
+                                running = runningBackgroundTasks,
+                                onClick = onShowBackgroundTasks,
                             )
                         }
+                    }
 
-                        if (!voiceState.isActive && (asrState.isAvailable || asrState.isRecording)) {
-                            AsrButton(
-                                state = asrState,
-                                onClick = {
-                                    when (asrState.status) {
-                                        ASRStatus.Listening -> asr.stop()
-                                        ASRStatus.Idle, ASRStatus.Error -> {
-                                            if (!asrPermission.allRequiredPermissionsGranted) {
-                                                asrPermission.requestPermissions()
-                                            } else {
-                                                asrBaseText = state.textContent.text.toString()
-                                                asr.start { transcript ->
-                                                    val spacer =
-                                                        if (asrBaseText.isBlank() || transcript.isBlank()) "" else " "
-                                                    state.setMessageText(asrBaseText + spacer + transcript)
-                                                }
+                    ActionIconButton(
+                        onClick = onMoreClick
+                    ) {
+                        Icon(
+                            imageVector = HugeIcons.Add01,
+                            contentDescription = stringResource(R.string.more_options)
+                        )
+                    }
+
+                    if (!voiceState.isActive && (asrState.isAvailable || asrState.isRecording)) {
+                        AsrButton(
+                            state = asrState,
+                            onClick = {
+                                when (asrState.status) {
+                                    ASRStatus.Listening -> asr.stop()
+                                    ASRStatus.Idle, ASRStatus.Error -> {
+                                        if (!asrPermission.allRequiredPermissionsGranted) {
+                                            asrPermission.requestPermissions()
+                                        } else {
+                                            asrBaseText = state.textContent.text.toString()
+                                            asr.start { transcript ->
+                                                val spacer =
+                                                    if (asrBaseText.isBlank() || transcript.isBlank()) "" else " "
+                                                state.setMessageText(asrBaseText + spacer + transcript)
                                             }
                                         }
-
-                                        ASRStatus.Connecting, ASRStatus.Stopping -> {}
                                     }
+
+                                    ASRStatus.Connecting, ASRStatus.Stopping -> {}
                                 }
-                            )
-                        }
+                            }
+                        )
+                    }
 
-                        if (loading) {
-                            KeepScreenOn()
-                        }
+                    if (loading) {
+                        KeepScreenOn()
+                    }
 
-                        AnimatedVisibility(
-                            visible = !asrState.isRecording,
-                            enter = fadeIn() + scaleIn(),
-                            exit = fadeOut() + scaleOut(),
-                        ) {
-                            SendButton(
-                                loading = loading,
-                                empty = state.isEmpty(),
-                                onClick = { sendMessage() },
-                                onLongClick = { sendMessageWithoutAnswer() },
-                            )
-                        }
+                    AnimatedVisibility(
+                        visible = !asrState.isRecording,
+                        enter = fadeIn() + scaleIn(),
+                        exit = fadeOut() + scaleOut(),
+                    ) {
+                        SendButton(
+                            loading = loading,
+                            empty = state.isEmpty(),
+                            onClick = { sendMessage() },
+                            onLongClick = { sendMessageWithoutAnswer() },
+                        )
                     }
                 }
             }
@@ -409,7 +386,7 @@ private fun SendButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(30.dp)
+            .size(40.dp)
             .testTag("chat_send_button")
             .clip(CircleShape)
             .combinedClickable(
@@ -481,6 +458,8 @@ private fun TextInputRow(
     state: ChatInputState,
     assistant: Assistant,
     completionProviders: List<ChatCompletionProvider>,
+    hazeState: HazeState,
+    displaySetting: DisplaySetting,
     onSendMessage: () -> Unit,
 ) {
     val settings = LocalSettings.current
@@ -611,56 +590,74 @@ private fun TextInputRow(
             )
         }
 
-        TextField(
-            state = state.textContent,
+        val inputShape = RoundedCornerShape(32.dp)
+        val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("chat_input")
-                .contentReceiver(receiveContentListener)
-                .onFocusChanged {
-                    isFocused = it.isFocused
+                .clip(inputShape)
+                .chatInputHaze(
+                    hazeState = hazeState,
+                    displaySetting = displaySetting,
+                    containerColor = containerColor,
+                    shape = inputShape,
+                ),
+            shape = inputShape,
+            tonalElevation = 0.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            color = if (displaySetting.enableBlurEffect) Color.Transparent else containerColor,
+        ) {
+            TextField(
+                state = state.textContent,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("chat_input")
+                    .contentReceiver(receiveContentListener)
+                    .onFocusChanged {
+                        isFocused = it.isFocused
+                    },
+                shape = inputShape,
+                placeholder = {
+                    Text(stringResource(R.string.chat_input_placeholder))
                 },
-            shape = MaterialTheme.shapes.largeIncreased,
-            placeholder = {
-                Text(stringResource(R.string.chat_input_placeholder))
-            },
-            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Sentences,
-                imeAction = if (settings.displaySetting.sendOnEnter) ImeAction.Send else ImeAction.Default
-            ),
-            onKeyboardAction = {
-                if (settings.displaySetting.sendOnEnter && !state.isEmpty()) {
-                    onSendMessage()
-                }
-            },
-            colors = TextFieldDefaults.colors().copy(
-                unfocusedIndicatorColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-            ),
-            trailingIcon = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    if (isFocused) {
-                        IconButton(
-                            onClick = {
-                                isFullScreen = !isFullScreen
-                            }) {
-                            Icon(HugeIcons.Fullscreen, null)
+                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = if (settings.displaySetting.sendOnEnter) ImeAction.Send else ImeAction.Default
+                ),
+                onKeyboardAction = {
+                    if (settings.displaySetting.sendOnEnter && !state.isEmpty()) {
+                        onSendMessage()
+                    }
+                },
+                colors = TextFieldDefaults.colors().copy(
+                    unfocusedIndicatorColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                ),
+                trailingIcon = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (isFocused) {
+                            IconButton(
+                                onClick = {
+                                    isFullScreen = !isFullScreen
+                                }) {
+                                Icon(HugeIcons.Fullscreen, null)
+                            }
                         }
                     }
-                }
-            },
-            leadingIcon = if (quickMessages.isNotEmpty()) {
-                {
-                    QuickMessageButton(quickMessages = quickMessages, state = state)
-                }
-            } else null,
-        )
+                },
+                leadingIcon = if (quickMessages.isNotEmpty()) {
+                    {
+                        QuickMessageButton(quickMessages = quickMessages, state = state)
+                    }
+                } else null,
+            )
+        }
         if (isFullScreen) {
             FullScreenEditor(
                 textState = state.textContent,

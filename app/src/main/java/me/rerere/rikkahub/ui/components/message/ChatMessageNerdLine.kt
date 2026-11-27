@@ -38,7 +38,7 @@ import java.time.Duration
 fun ChatMessageNerdLine(
     message: UIMessage,
     modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
+    color: Color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
 ) {
     val usage = message.usage
     if (!LocalSettings.current.displaySetting.showTokenUsage || usage == null) return
