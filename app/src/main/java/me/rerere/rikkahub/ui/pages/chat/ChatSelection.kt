@@ -106,7 +106,7 @@ internal fun ChatSelectionToolbar(
                     Text(stringResource(R.string.confirm))
                 }
             ) {
-                FilledIconButton(onClick = onConfirm) {
+                FilledIconButton(onClick = onConfirm, enabled = state.selectedItems.any { it in allIds }) {
                     Icon(HugeIcons.Tick01, null)
                 }
             }

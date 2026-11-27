@@ -2,4 +2,6 @@
 <resources>
   <string name="theme_name_home_charcoal">深炭灰</string>
   <string name="home_preview_whole_word">整词</string>
+  <string name="home_export_gallery_saved">已保存到相册 Pictures/Home</string>
+  <string name="home_export_gallery_failed">无法将图片保存到相册。</string>
 </resources>

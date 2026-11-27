@@ -26,10 +26,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -106,11 +108,14 @@ fun ChatList(
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
 ) {
-    val previewProgress = rememberPreviewSwipeProgress(previewMode)
+    val previewMessages = rememberPreviewMessages(conversation)
+    val previewReady by remember(previewMessages) { derivedStateOf { !previewMessages.value.isNullOrEmpty() } }
+    val previewProgress = rememberPreviewSwipeProgress(previewMode && previewReady)
+    val previewStateHolder = key(conversation.id) { rememberSaveableStateHolder() }
     val scope = rememberCoroutineScope()
     val currentPreviewMode by rememberUpdatedState(previewMode)
     val currentOnPreviewModeChange by rememberUpdatedState(onPreviewModeChange)
-    val currentConversation by rememberUpdatedState(conversation)
+    val canShowPreview by rememberUpdatedState(previewReady)
     val layoutDirection = LocalLayoutDirection.current
     // 概览页只在露出来的时候组合，平时不占资源
     val showPreview by remember { derivedStateOf { previewProgress.value > 0f } }
@@ -123,8 +128,8 @@ fun ChatList(
                 progress = previewProgress,
                 scope = scope,
                 layoutDirection = layoutDirection,
-                canEnterPreview = { currentConversation.messageNodes.isNotEmpty() },
-                isPreviewMode = { currentPreviewMode },
+                canEnterPreview = { canShowPreview },
+                isPreviewMode = { currentPreviewMode && canShowPreview },
                 onPreviewModeChange = { currentOnPreviewModeChange(it) },
             ),
     ) {
@@ -164,7 +169,8 @@ fun ChatList(
             )
         }
 
-        if (showPreview) {
+        val messages = if (showPreview) previewMessages.value else null
+        if (!messages.isNullOrEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -172,15 +178,18 @@ fun ChatList(
                         alpha = previewProgress.value
                     },
             ) {
-                ChatListPreview(
-                    innerPadding = innerPadding,
-                    conversation = conversation,
-                    chatListState = state,
-                    listState = previewListState,
-                    settings = settings,
-                    hazeState = hazeState,
-                    onJumpToMessage = onJumpToMessage,
-                )
+                previewStateHolder.SaveableStateProvider("preview") {
+                    ChatListPreview(
+                        innerPadding = innerPadding,
+                        conversation = conversation,
+                        chatListState = state,
+                        messages = messages,
+                        listState = previewListState,
+                        settings = settings,
+                        hazeState = hazeState,
+                        onJumpToMessage = onJumpToMessage,
+                    )
+                }
             }
         }
     }

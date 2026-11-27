@@ -2,4 +2,6 @@
 <resources>
   <string name="theme_name_home_charcoal">Charcoal</string>
   <string name="home_preview_whole_word">Word</string>
+  <string name="home_export_gallery_saved">Saved to gallery (Pictures/Home)</string>
+  <string name="home_export_gallery_failed">Could not save the image to the gallery.</string>
 </resources>

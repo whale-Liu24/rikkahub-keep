@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -22,7 +23,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-private val PreviewFadeSpec = tween<Float>(durationMillis = 150)
+private val PreviewFadeSpec = tween<Float>(durationMillis = 200, easing = FastOutSlowInEasing)
 
 /**
  * 概览页的不透明度，0 是聊天页，1 是概览页。

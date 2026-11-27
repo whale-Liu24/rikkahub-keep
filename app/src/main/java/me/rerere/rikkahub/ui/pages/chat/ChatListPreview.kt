@@ -26,7 +26,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -49,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.withContext
@@ -71,14 +74,13 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
-import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.UIAvatar
 import me.rerere.rikkahub.utils.plus
 import me.rerere.rikkahub.utils.toPreviewTimeString
 import kotlin.uuid.Uuid
 
-private data class PreviewMessage(
+internal data class PreviewMessage(
     val id: Uuid,
     val index: Int,
     val message: UIMessage,
@@ -86,10 +88,30 @@ private data class PreviewMessage(
     val favorite: Boolean,
 )
 
-private fun List<MessageNode>.toPreviewMessages(): List<PreviewMessage> = mapIndexed { index, node ->
-    val message = node.currentMessage
-    PreviewMessage(node.id, index, message, message.toPreviewText(), node.isFavorite)
-}
+@Composable
+internal fun rememberPreviewMessages(conversation: Conversation): State<List<PreviewMessage>?> =
+    key(conversation.id) {
+        val nodes by rememberUpdatedState(conversation.messageNodes)
+        produceState<List<PreviewMessage>?>(initialValue = null) {
+            snapshotFlow { nodes }.conflate().collect { currentNodes ->
+                val cached = value
+                value = withContext(Dispatchers.Default) {
+                    val previous = cached.orEmpty().associateBy { it.id }
+                    currentNodes.mapIndexed { index, node ->
+                        ensureActive()
+                        val message = node.currentMessage
+                        val old = previous[node.id]
+                        val text = if (old != null && old.message.parts == message.parts) {
+                            old.text
+                        } else {
+                            message.toPreviewText()
+                        }
+                        PreviewMessage(node.id, index, message, text, node.isFavorite)
+                    }
+                }
+            }
+        }
+    }
 
 /** 消息概览按原始消息节点逐条展示，搜索后的列表位置不作为跳转索引。 */
 @Composable
@@ -97,6 +119,7 @@ internal fun ChatListPreview(
     innerPadding: PaddingValues,
     conversation: Conversation,
     chatListState: LazyListState,
+    messages: List<PreviewMessage>,
     listState: LazyListState,
     settings: Settings,
     hazeState: HazeState,
@@ -107,16 +130,7 @@ internal fun ChatListPreview(
     val query = searchQuery.trim()
     val search = remember(query, wholeWord) { HomePreviewSearch(query, wholeWord) }
 
-    // 长对话里逐条做正则清洗很慢，放到后台算；没算完时为 null。
-    // 生成中节点每个 chunk 都在变，conflate 掉中间状态，只算最新的
     val nodes by rememberUpdatedState(conversation.messageNodes)
-    val loadedMessages by produceState<List<PreviewMessage>?>(initialValue = null, key1 = conversation.id) {
-        value = null
-        snapshotFlow { nodes }
-            .conflate()
-            .collect { currentNodes -> value = withContext(Dispatchers.Default) { currentNodes.toPreviewMessages() } }
-    }
-    val messages = loadedMessages.orEmpty()
     val filtered = remember(messages, search) {
         if (query.isEmpty()) messages else messages.filter { search.matches(it.text) }
     }
@@ -130,12 +144,11 @@ internal fun ChatListPreview(
 
     // 打开时的阅读位置；概览期间聊天列表不动，记一次就够
     val currentIndex = remember(conversation.id) { chatListState.firstVisibleItemIndex }
-    val loaded = loadedMessages != null
-    LaunchedEffect(loaded, conversation.id) {
-        if (!loaded || filtered.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(conversation.id) {
+        if (query.isNotEmpty() || filtered.isEmpty()) return@LaunchedEffect
         val currentPosition = filtered.indexOfFirst { it.index >= currentIndex }
         val position = if (currentPosition < 0) filtered.lastIndex else (currentPosition - 1).coerceAtLeast(0)
-        listState.scrollToItem(position)
+        listState.requestScrollToItem(position)
     }
     // 搜索框固定在列表外，滚到中间时改搜索词，结果要从头看
     LaunchedEffect(listState) {
@@ -159,7 +172,7 @@ internal fun ChatListPreview(
                 .topFadingEdge(listTop)
                 .hazeSource(state = hazeState),
         ) {
-            if (loaded && filtered.isEmpty()) {
+            if (filtered.isEmpty()) {
                 item(key = PreviewEmptyKey) {
                     Column(
                         modifier = Modifier

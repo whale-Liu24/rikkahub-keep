@@ -1,9 +1,14 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
+import androidx.annotation.RequiresApi
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.RowScope
@@ -15,6 +20,8 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.vector.ImageVector
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 import me.rerere.hugeicons.stroke.Download04
@@ -35,6 +42,7 @@ import me.rerere.hugeicons.stroke.Wrench01
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -65,6 +73,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -72,15 +84,18 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.compose.runtime.mutableStateListOf
 import androidx.navigation3.runtime.NavKey
 import me.rerere.rikkahub.ui.context.Navigator
+import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
+import coil3.request.SuccessResult
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.request.crossfade
+import coil3.svg.css
+import coil3.toBitmap
 import me.rerere.ui.toast.ToastType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -96,6 +111,9 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.tools.MemoryToolNames
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
+import me.rerere.rikkahub.data.datastore.getAssistantById
+import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.ui.components.message.MessagePartBlock
 import me.rerere.rikkahub.ui.components.message.ThinkingStep
@@ -103,15 +121,18 @@ import me.rerere.rikkahub.ui.components.message.ChatMessageServerToolStep
 import me.rerere.rikkahub.ui.components.message.groupMessageParts
 import me.rerere.rikkahub.ui.components.message.tools.memoryToolTitle
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
-import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
+import me.rerere.rikkahub.ui.components.ui.TextAvatar
 import me.rerere.rikkahub.ui.components.ui.ChainOfThought
 import me.rerere.rikkahub.ui.components.ui.ChainOfThoughtScope
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.ui.toast.rememberToasterState
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
+import me.rerere.rikkahub.utils.computeAIIconByName
 import me.rerere.rikkahub.utils.getActivity
+import me.rerere.rikkahub.utils.toCssHex
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.rikkahub.utils.toLocalString
@@ -135,8 +156,7 @@ private enum class ChatExportFormat(
 private enum class ChatExportAction { Save, Share }
 
 /**
- * 先选格式和选项，再决定「保存」（系统另存为，用户挑位置）还是「分享」（系统分享面板）。
- * 两种都是先在临时目录生成文件；保存时等用户选完位置再把文件拷过去。
+ * 先生成临时文件。图片可保存到相册，其他保存使用系统文件选择器。
  */
 @Composable
 fun ChatExportSheet(
@@ -150,6 +170,7 @@ fun ChatExportSheet(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val settings = LocalSettings.current
+    val avatarTint = MaterialTheme.colorScheme.onSecondaryContainer
     var exportOptions by remember { mutableStateOf(ExportOptions()) }
     var format by rememberSaveable { mutableStateOf(ChatExportFormat.Markdown) }
     var exporting by remember { mutableStateOf<ChatExportAction?>(null) }
@@ -193,6 +214,8 @@ fun ChatExportSheet(
         val messages = selectedMessages
         val options = exportOptions
         val exportFormat = format
+        val saveToGallery = action == ChatExportAction.Save && exportFormat == ChatExportFormat.Image &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
         exporting = action
         scope.launch {
             runCatching {
@@ -205,11 +228,20 @@ fun ChatExportSheet(
                         conversation = conversation,
                         messages = messages,
                         settings = settings,
+                        avatarTint = avatarTint,
                         options = options,
                     )
+                }.also { file ->
+                    if (saveToGallery && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        savePngToGallery(context, file)
+                    }
                 }
             }.onSuccess { file ->
                 onDismissRequest()
+                if (saveToGallery) {
+                    toaster.show(context.getString(R.string.home_export_gallery_saved), type = ToastType.Success)
+                    return@onSuccess
+                }
                 when (action) {
                     ChatExportAction.Save -> {
                         pendingSavePath = file.path
@@ -226,8 +258,12 @@ fun ChatExportSheet(
                 }
             }.onFailure {
                 if (it is CancellationException) throw it
-                it.printStackTrace()
-                toaster.show(context.getString(R.string.chat_page_export_failed, it.message.orEmpty()), type = ToastType.Error)
+                if (saveToGallery) {
+                    toaster.show(context.getString(R.string.home_export_gallery_failed), type = ToastType.Error)
+                } else {
+                    it.printStackTrace()
+                    toaster.show(context.getString(R.string.chat_page_export_failed, it.message.orEmpty()), type = ToastType.Error)
+                }
             }
             exporting = null
         }
@@ -499,6 +535,108 @@ private fun buildMarkdownExport(
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.Q)
+private suspend fun savePngToGallery(context: Context, file: File) = withContext(Dispatchers.IO) {
+    val resolver = context.contentResolver
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+        put(MediaStore.MediaColumns.MIME_TYPE, ChatExportFormat.Image.mimeType)
+        put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Home")
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+    var pendingUri: Uri? = null
+    try {
+        val uri = checkNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values))
+        pendingUri = uri
+        val output = checkNotNull(resolver.openOutputStream(uri))
+        output.use { target -> file.inputStream().use { it.copyTo(target) } }
+        ensureActive()
+        val ready = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+        check(resolver.update(uri, ready, null, null) > 0)
+    } catch (failure: Exception) {
+        pendingUri?.let { uri -> runCatching { resolver.delete(uri, null, null) } }
+        throw failure
+    } finally {
+        file.delete()
+    }
+}
+
+private data class ExportAvatar(
+    val label: String,
+    val modelIcon: String? = null,
+    val assistantAvatar: Avatar? = null,
+)
+
+private fun exportAvatar(settings: Settings, message: UIMessage, assistant: Assistant?): ExportAvatar {
+    if (assistant?.useAssistantAvatar == true) {
+        return ExportAvatar(assistant.name.ifBlank { "AI" }, assistantAvatar = assistant.avatar)
+    }
+    val model = message.modelId?.let { settings.findModelById(it) } ?: message.snapshotModel()
+    val label = model?.modelId?.takeIf { it.isNotBlank() }
+        ?: model?.displayName?.takeIf { it.isNotBlank() }
+        ?: "AI"
+    return ExportAvatar(label, modelIcon = computeAIIconByName(label))
+}
+
+private suspend fun loadExportAvatars(
+    context: Context,
+    avatars: List<ExportAvatar>,
+    tint: Color,
+    size: Int,
+): Map<ExportAvatar, ImageBitmap> = withContext(Dispatchers.IO) {
+    val loader = SingletonImageLoader.get(context)
+    buildMap {
+        for (avatar in avatars.distinct()) {
+            val modelIcon = avatar.modelIcon
+            val source = if (modelIcon != null) {
+                "file:///android_asset/icons/$modelIcon"
+            } else {
+                (avatar.assistantAvatar as? Avatar.Image)?.url
+            } ?: continue
+            val request = ImageRequest.Builder(context)
+                .data(source)
+                .size(size, size)
+                .allowHardware(false)
+                .apply {
+                    if (modelIcon?.endsWith(".svg") == true && !modelIcon.endsWith("-color.svg")) {
+                        css("svg { fill: ${tint.toCssHex()}; }")
+                    }
+                }
+                .build()
+            val result = withTimeoutOrNull(2_000) { loader.execute(request) } as? SuccessResult
+            result?.image?.let { put(avatar, it.toBitmap().asImageBitmap()) }
+        }
+    }
+}
+
+@Composable
+private fun ExportAvatarIcon(avatar: ExportAvatar, image: ImageBitmap?) {
+    val colors = MaterialTheme.colorScheme
+    val zhipuOnDark = LocalDarkMode.current && avatar.modelIcon == "zhipu-color.svg" && image != null
+    Surface(
+        modifier = Modifier.padding(top = 8.dp).size(36.dp),
+        shape = RoundedCornerShape(percent = 50),
+        color = if (zhipuOnDark) colors.inverseSurface else colors.secondaryContainer,
+        contentColor = colors.onSecondaryContainer,
+    ) {
+        if (image != null) {
+            Image(
+                bitmap = image,
+                contentDescription = null,
+                modifier = if (avatar.modelIcon == null) Modifier else Modifier.padding(4.dp),
+                contentScale = if (avatar.modelIcon == null) ContentScale.Crop else ContentScale.Fit,
+            )
+        } else {
+            val emoji = avatar.assistantAvatar as? Avatar.Emoji
+            if (emoji == null) {
+                TextAvatar(text = avatar.label)
+            } else {
+                Box(contentAlignment = Alignment.Center) { Text(emoji.content) }
+            }
+        }
+    }
+}
+
 private suspend fun writeImageExport(
     context: Context,
     scope: CoroutineScope,
@@ -506,10 +644,21 @@ private suspend fun writeImageExport(
     conversation: Conversation,
     messages: List<UIMessage>,
     settings: Settings,
+    avatarTint: Color,
     options: ExportOptions = ExportOptions()
 ): File {
     val composer = BitmapComposer(scope)
     val activity = context.getActivity() ?: error("Failed to get activity")
+    val assistant = settings.getAssistantById(conversation.assistantId)
+    val avatars = messages.mapIndexed { index, message ->
+        if (message.role == MessageRole.ASSISTANT && messages.getOrNull(index - 1)?.role != MessageRole.ASSISTANT) {
+            exportAvatar(settings, message, assistant)
+        } else {
+            null
+        }
+    }
+    val avatarSize = with(density) { 36.dp.roundToPx() }.coerceAtLeast(1)
+    val avatarImages = loadExportAvatars(context, avatars.filterNotNull(), avatarTint, avatarSize)
 
     val bitmap = composer.composableToBitmap(
         activity = activity,
@@ -520,6 +669,8 @@ private suspend fun writeImageExport(
                 ExportedChatImage(
                     conversation = conversation,
                     messages = messages,
+                    avatars = avatars,
+                    avatarImages = avatarImages,
                     options = options
                 )
             }
@@ -548,6 +699,8 @@ data class ExportOptions(
 private fun ExportedChatImage(
     conversation: Conversation,
     messages: List<UIMessage>,
+    avatars: List<ExportAvatar?>,
+    avatarImages: Map<ExportAvatar, ImageBitmap>,
     options: ExportOptions = ExportOptions()
 ) {
     val navBackStack = remember { mutableStateListOf<NavKey>() }
@@ -580,7 +733,7 @@ private fun ExportedChatImage(
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                             )
                             Text(
-                                text = "${LocalDateTime.now().toLocalString()}  rikka-ai.com",
+                                text = LocalDateTime.now().toLocalString(),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -599,16 +752,8 @@ private fun ExportedChatImage(
                         ExportedChatMessage(
                             message = message,
                             options = options,
-                            prevMessage = messages.getOrNull(index - 1)
-                        )
-                    }
-
-                    // Watermark
-                    Column {
-                        Text(
-                            text = stringResource(R.string.export_image_warning),
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            avatar = avatars[index],
+                            avatarImage = avatars[index]?.let { avatarImages[it] }
                         )
                     }
                 }
@@ -621,7 +766,8 @@ private fun ExportedChatImage(
 @Composable
 private fun ExportedChatMessage(
     message: UIMessage,
-    prevMessage: UIMessage? = null,
+    avatar: ExportAvatar?,
+    avatarImage: ImageBitmap?,
     options: ExportOptions = ExportOptions()
 ) {
     // 通知是发给模型的运行时事件，不导出
@@ -633,14 +779,6 @@ private fun ExportedChatMessage(
     if (parts.isEmptyUIMessage()) return
     val context = LocalContext.current
     val settings = LocalSettings.current
-    val model = message.modelId?.let { settings.findModelById(it) } ?: message.snapshotModel()
-    // Always show model icon for assistant messages in exported images
-    val showModelIcon = message.role == MessageRole.ASSISTANT && prevMessage?.role == MessageRole.USER
-    val iconLabel = when {
-        model?.modelId?.isNotBlank() == true -> model.modelId
-        model?.displayName?.isNotBlank() == true -> model.displayName
-        else -> "AI"
-    }
     val groupedParts = remember(parts) { parts.groupMessageParts() }
     val messageContent: @Composable () -> Unit = {
         Column(
@@ -749,21 +887,16 @@ private fun ExportedChatMessage(
         }
     }
 
-    if (showModelIcon) {
+    if (avatar != null) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 8.dp)
         ) {
-            AutoAIIcon(
-                name = iconLabel,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .size(36.dp)
-            )
+            ExportAvatarIcon(avatar, avatarImage)
 
             Text(
-                text = iconLabel,
+                text = avatar.label,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 8.dp)
             )

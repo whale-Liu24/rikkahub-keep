@@ -72,7 +72,7 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
-import me.rerere.hugeicons.stroke.Menu03
+import me.rerere.hugeicons.stroke.ListTree
 import me.rerere.hugeicons.stroke.MessageCirclePlus
 import me.rerere.hugeicons.stroke.MoreVertical
 import me.rerere.hugeicons.stroke.Share04
@@ -363,9 +363,8 @@ private fun ChatPageContent(
                         previewMode = !previewMode
                     },
                     onExport = {
-                        // 跟消息上的分享一样进入多选，默认全选，用户可以再挑
                         previewMode = false
-                        selectionState.start(conversation.messageNodes.map { it.id })
+                        selectionState.start(emptyList())
                     },
                     onDelete = {
                         showDeleteConfirm = true
@@ -659,7 +658,7 @@ private fun TopBar(
                             scope.launch { drawerState.open() }
                         }
                     ) {
-                        Icon(HugeIcons.Menu03, "Messages")
+                        Icon(HugeIcons.ListTree, "Messages")
                     }
                 }
             }
