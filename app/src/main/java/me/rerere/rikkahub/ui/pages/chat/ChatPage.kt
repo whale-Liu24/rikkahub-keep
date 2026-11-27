@@ -72,7 +72,6 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
-import me.rerere.hugeicons.stroke.ListTree
 import me.rerere.hugeicons.stroke.MessageCirclePlus
 import me.rerere.hugeicons.stroke.MoreVertical
 import me.rerere.hugeicons.stroke.Share04
@@ -94,6 +93,7 @@ import me.rerere.rikkahub.ui.components.ai.FilesPicker
 import me.rerere.rikkahub.ui.components.ai.SearchMode
 import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.rerere.rikkahub.ui.components.ai.rememberChatAttachmentPickerActions
+import me.rerere.rikkahub.ui.components.ui.HomeIcons
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.context.Navigator
@@ -658,7 +658,7 @@ private fun TopBar(
                             scope.launch { drawerState.open() }
                         }
                     ) {
-                        Icon(HugeIcons.ListTree, "Messages")
+                        Icon(HomeIcons.ListTree, "Messages")
                     }
                 }
             }

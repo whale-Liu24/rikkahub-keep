@@ -157,26 +157,19 @@ fun ChatMessage(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         if (!message.parts.isEmptyUIMessage()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-            ) {
-                ChatMessageAssistantAvatar(
-                    message = message,
-                    model = model,
-                    assistant = assistant,
-                    loading = loading,
-                    modifier = Modifier.weight(1f)
-                )
-                ChatMessageUserAvatar(
-                    message = message,
-                    avatar = settings.userAvatar,
-                    nickname = settings.userNickname,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            ChatMessageAssistantAvatar(
+                message = message,
+                model = model,
+                assistant = assistant,
+                loading = loading,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            ChatMessageUserAvatar(
+                message = message,
+                avatar = settings.userAvatar,
+                nickname = settings.userNickname,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         CompositionLocalProvider(
             LocalTextStyle provides textStyle,

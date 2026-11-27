@@ -1,6 +1,9 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,10 +47,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalScrollCaptureInProgress
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -110,10 +117,14 @@ fun ChatList(
 ) {
     val previewMessages = rememberPreviewMessages(conversation)
     val previewReady by remember(previewMessages) { derivedStateOf { !previewMessages.value.isNullOrEmpty() } }
-    val previewProgress = rememberPreviewSwipeProgress(previewMode && previewReady)
+    val showMap = previewMode && previewReady
+    val previewProgress = animateFloatAsState(
+        targetValue = if (showMap) 1f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = 0.002f),
+        label = "Conversation map",
+    )
     val previewStateHolder = key(conversation.id) { rememberSaveableStateHolder() }
-    val scope = rememberCoroutineScope()
-    val currentPreviewMode by rememberUpdatedState(previewMode)
+    val currentPreviewMode by rememberUpdatedState(showMap)
     val currentOnPreviewModeChange by rememberUpdatedState(onPreviewModeChange)
     val canShowPreview by rememberUpdatedState(previewReady)
     val layoutDirection = LocalLayoutDirection.current
@@ -125,11 +136,9 @@ fun ChatList(
             .fillMaxSize()
             .clipToBounds()
             .previewSwipeGesture(
-                progress = previewProgress,
-                scope = scope,
                 layoutDirection = layoutDirection,
                 canEnterPreview = { canShowPreview },
-                isPreviewMode = { currentPreviewMode && canShowPreview },
+                isPreviewMode = { currentPreviewMode },
                 onPreviewModeChange = { currentOnPreviewModeChange(it) },
             ),
     ) {
@@ -137,8 +146,13 @@ fun ChatList(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .zIndex(if (showMap) 0f else 1f)
+                .blockInactiveChatLayer(inactive = showMap)
                 .graphicsLayer {
-                    alpha = 1f - previewProgress.value
+                    val progress = previewProgress.value.coerceIn(0f, 1f)
+                    alpha = 1f - progress
+                    scaleX = 1f - 0.2f * progress
+                    scaleY = scaleX
                 },
         ) {
             ChatListNormal(
@@ -169,13 +183,18 @@ fun ChatList(
             )
         }
 
-        val messages = if (showPreview) previewMessages.value else null
+        val messages = if (showMap || showPreview) previewMessages.value else null
         if (!messages.isNullOrEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .zIndex(if (showMap) 1f else 0f)
+                    .blockInactiveChatLayer(inactive = !showMap)
                     .graphicsLayer {
-                        alpha = previewProgress.value
+                        val progress = previewProgress.value.coerceIn(0f, 1f)
+                        alpha = progress
+                        scaleX = 0.8f + 0.2f * progress
+                        scaleY = scaleX
                     },
             ) {
                 previewStateHolder.SaveableStateProvider("preview") {
@@ -194,6 +213,20 @@ fun ChatList(
         }
     }
 }
+
+// Keep the outgoing layer composed without letting its children handle touches.
+private fun Modifier.blockInactiveChatLayer(inactive: Boolean): Modifier =
+    if (inactive) {
+        semantics { hideFromAccessibility() }.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                }
+            }
+        }
+    } else {
+        this
+    }
 
 // 概览列表在浮动搜索框下方淡出。
 internal fun Modifier.topFadingEdge(height: Dp): Modifier = this

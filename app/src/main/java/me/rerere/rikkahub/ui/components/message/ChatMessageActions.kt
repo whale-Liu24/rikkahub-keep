@@ -42,21 +42,16 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.Copy01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Edit01
 import me.rerere.hugeicons.stroke.FavouriteCircle
 import me.rerere.hugeicons.stroke.GitFork
-import me.rerere.hugeicons.stroke.MoreVertical
-import me.rerere.hugeicons.stroke.Refresh03
 import me.rerere.hugeicons.stroke.Share04
-import me.rerere.hugeicons.stroke.StopCircle
 import me.rerere.hugeicons.stroke.TextSelection
-import me.rerere.hugeicons.stroke.Translate
-import me.rerere.hugeicons.stroke.VolumeHigh
 import me.rerere.hugeicons.stroke.WebDesign01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.MessageNode
+import me.rerere.rikkahub.ui.components.ui.HomeIcons
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalTTSState
 import me.rerere.rikkahub.utils.copyMessageToClipboard
@@ -91,17 +86,20 @@ fun ColumnScope.ChatMessageActionButtons(
     }
 
     FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(
+            8.dp,
+            if (message.role == MessageRole.USER) Alignment.End else Alignment.Start,
+        ),
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         ChatMessageActionButton(
-            icon = HugeIcons.Copy01,
+            icon = HomeIcons.Copy,
             contentDescription = stringResource(R.string.copy),
             onClick = { context.copyMessageToClipboard(message) },
         )
 
         ChatMessageActionButton(
-            icon = HugeIcons.Refresh03,
+            icon = HomeIcons.RefreshCw,
             contentDescription = stringResource(R.string.regenerate),
             onClick = {
                 if (message.role == MessageRole.USER) {
@@ -136,16 +134,17 @@ fun ColumnScope.ChatMessageActionButtons(
                         }
                     },
                     shapes = IconButtonDefaults.toggleableShapes(),
-                    modifier = Modifier.size(IconButtonDefaults.extraSmallContainerSize()),
+                    modifier = Modifier.size(ActionButtonSize),
                     enabled = isAvailable,
                     colors = IconButtonDefaults.iconToggleButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+                        disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                         checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
                         checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     ),
                 ) {
                     Icon(
-                        imageVector = if (isSpeaking) HugeIcons.StopCircle else HugeIcons.VolumeHigh,
+                        imageVector = if (isSpeaking) HomeIcons.CircleStop else HomeIcons.Volume2,
                         contentDescription = stringResource(R.string.tts),
                         modifier = Modifier.size(ActionIconSize),
                     )
@@ -155,7 +154,7 @@ fun ColumnScope.ChatMessageActionButtons(
             // Translation button
             if (onTranslate != null) {
                 ChatMessageActionButton(
-                    icon = HugeIcons.Translate,
+                    icon = HomeIcons.Languages,
                     contentDescription = stringResource(R.string.translate),
                     onClick = { showTranslateDialog = true },
                 )
@@ -163,7 +162,7 @@ fun ColumnScope.ChatMessageActionButtons(
         }
 
         ChatMessageActionButton(
-            icon = HugeIcons.MoreVertical,
+            icon = HomeIcons.Ellipsis,
             contentDescription = stringResource(R.string.more_options),
             onClick = onOpenActionSheet,
         )
@@ -173,7 +172,9 @@ fun ColumnScope.ChatMessageActionButtons(
             onUpdate = onUpdate,
         )
 
-        if (settings.displaySetting.showDateTimeInMessage) {
+        if (message.role == MessageRole.USER && !settings.displaySetting.showUserAvatar &&
+            settings.displaySetting.showDateTimeInMessage
+        ) {
             Text(
                 text = message.createdAt.toJavaLocalDateTime().toMessageTimeString(),
                 style = MaterialTheme.typography.labelSmall,
@@ -216,7 +217,8 @@ fun ColumnScope.ChatMessageActionButtons(
     )
 }
 
-private val ActionIconSize = 18.dp
+private val ActionIconSize = 16.dp
+private val ActionButtonSize = 32.dp
 
 // 消息下方的小号图标按钮，按下时圆形收成方角
 @Composable
@@ -232,10 +234,10 @@ internal fun ChatMessageActionButton(
         IconButton(
             onClick = onClick,
             shapes = IconButtonDefaults.shapes(),
-            modifier = modifier.size(IconButtonDefaults.extraSmallContainerSize()),
+            modifier = modifier.size(ActionButtonSize),
             enabled = enabled,
             colors = IconButtonDefaults.iconButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
             ),
         ) {
             Icon(
