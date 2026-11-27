@@ -3,6 +3,9 @@ package me.rerere.rikkahub.ui.pages.chat
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Scaffold
@@ -246,35 +250,48 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         }
 
         else -> {
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                drawerContent = {
-                    ChatDrawerContent(
-                        navController = navController,
-                        current = conversation,
-                        vm = vm,
-                        settings = setting
-                    )
+            val outerMotionScheme = MaterialTheme.motionScheme
+            val drawerMotionScheme = remember(outerMotionScheme) {
+                object : MotionScheme by outerMotionScheme {
+                    override fun <T> defaultSpatialSpec(): FiniteAnimationSpec<T> =
+                        tween(durationMillis = 280, easing = FastOutSlowInEasing)
                 }
-            ) {
-                ChatPageContent(
-                    onStartVoiceMode = startVoiceMode,
-                    inputState = inputState,
-                    loadingJob = loadingJob,
-                    processingStatus = processingStatus,
-                    setting = setting,
-                    conversation = conversation,
+            }
+            MaterialTheme(motionScheme = drawerMotionScheme) {
+                ModalNavigationDrawer(
                     drawerState = drawerState,
-                    navController = navController,
-                    vm = vm,
-                    chatListState = chatListState,
-                    assistant = assistant,
-                    currentChatModel = currentChatModel,
-                    bigScreen = false,
-                    errors = errors,
-                    onDismissError = { vm.dismissError(it) },
-                    onClearAllErrors = { vm.clearAllErrors() },
-                )
+                    drawerContent = {
+                        MaterialTheme(motionScheme = outerMotionScheme) {
+                            ChatDrawerContent(
+                                navController = navController,
+                                current = conversation,
+                                vm = vm,
+                                settings = setting
+                            )
+                        }
+                    }
+                ) {
+                    MaterialTheme(motionScheme = outerMotionScheme) {
+                        ChatPageContent(
+                            onStartVoiceMode = startVoiceMode,
+                            inputState = inputState,
+                            loadingJob = loadingJob,
+                            processingStatus = processingStatus,
+                            setting = setting,
+                            conversation = conversation,
+                            drawerState = drawerState,
+                            navController = navController,
+                            vm = vm,
+                            chatListState = chatListState,
+                            assistant = assistant,
+                            currentChatModel = currentChatModel,
+                            bigScreen = false,
+                            errors = errors,
+                            onDismissError = { vm.dismissError(it) },
+                            onClearAllErrors = { vm.clearAllErrors() },
+                        )
+                    }
+                }
             }
             BackHandler(drawerState.isOpen) {
                 scope.launch { drawerState.close() }

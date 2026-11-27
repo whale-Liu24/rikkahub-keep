@@ -44,8 +44,9 @@ import kotlinx.datetime.toJavaLocalDateTime
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.ui.UIMessage
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.Layers01
-import me.rerere.hugeicons.stroke.Repeat
+import me.rerere.hugeicons.stroke.ArrowDown01
+import me.rerere.hugeicons.stroke.ArrowUp01
+import me.rerere.hugeicons.stroke.Clock01
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.findModelById
@@ -58,14 +59,14 @@ import java.time.Duration
 /**
  * 显示消息的技术统计信息（如 token 使用量），点击查看详情
  *
- * 多轮工具调用时 usage 是各步累计值，行内只显示最后一次请求的上下文占用，累计值放在详情里。
+ * 行内显示消息累计用量，详情同时展示最后一次请求的上下文占用。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatMessageNerdLine(
     message: UIMessage,
     modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
 ) {
     val settings = LocalSettings.current
     val usage = message.usage
@@ -94,36 +95,52 @@ fun ChatMessageNerdLine(
     ) {
         ProvideTextStyle(MaterialTheme.typography.labelSmall.copy(color = color)) {
             CompositionLocalProvider(LocalContentColor provides color) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    itemVerticalAlignment = Alignment.CenterVertically,
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { scope.launch { tooltipState.show() } }
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
-                    if (stats.steps > 1) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
                         StatsItem(
-                            icon = { StatsIcon(HugeIcons.Repeat, stringResource(R.string.chat_message_usage_step_count)) },
-                            content = { Text(text = stringResource(R.string.chat_message_usage_steps, stats.steps)) }
+                            icon = { StatsIcon(HugeIcons.ArrowUp01, stringResource(R.string.chat_message_usage_input)) },
+                            content = { Text(text = "${stats.total.promptTokens.formatNumber()} tokens") },
                         )
-                    }
-                    if (stats.tps != null) {
-                        StatsItem(
-                            icon = { StatsIcon(HugeIcons.Zap, stringResource(R.string.chat_message_usage_speed)) },
-                            content = { Text(text = "${stats.tps.toFixed(1)} tok/s") }
-                        )
-                    }
-                    StatsItem(
-                        icon = { StatsIcon(HugeIcons.Layers01, stringResource(R.string.chat_message_usage_context)) },
-                        content = {
-                            Text(text = stringResource(R.string.chat_message_usage_context_short, stats.contextTokens.formatNumber()))
-                            val cached = stats.lastUsage.cachedTokens
-                            if (cached > 0) {
-                                Text(text = stringResource(R.string.chat_message_usage_cached_short, cached.formatNumber()))
-                            }
+                        if (stats.total.cachedTokens > 0) {
+                            Text(
+                                text = stringResource(
+                                    R.string.chat_message_usage_cached_short,
+                                    stats.total.cachedTokens.formatNumber(),
+                                ),
+                            )
                         }
-                    )
+                        StatsItem(
+                            icon = { StatsIcon(HugeIcons.ArrowDown01, stringResource(R.string.chat_message_usage_output)) },
+                            content = { Text(text = "${stats.total.completionTokens.formatNumber()} tokens") },
+                        )
+                    }
+
+                    if (stats.tps != null && stats.durationMillis != null) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            itemVerticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            StatsItem(
+                                icon = { StatsIcon(HugeIcons.Zap, stringResource(R.string.chat_message_usage_speed)) },
+                                content = { Text(text = "${stats.tps.toFixed(1)} tok/s") },
+                            )
+                            StatsItem(
+                                icon = { StatsIcon(HugeIcons.Clock01, stringResource(R.string.chat_message_usage_duration)) },
+                                content = { Text(text = "${(stats.durationMillis / 1000f).toFixed(1)}s") },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -295,7 +312,6 @@ private data class NerdStats(
     val total: TokenUsage,
     val lastUsage: TokenUsage,
     val steps: Int,
-    val contextTokens: Int,
     val durationMillis: Long?,
     val tps: Float?,
 )
@@ -313,7 +329,6 @@ private fun UIMessage.nerdStats(usage: TokenUsage): NerdStats {
         total = usage,
         lastUsage = last,
         steps = stepCount ?: 1,
-        contextTokens = last.promptTokens + last.completionTokens,
         durationMillis = durationMillis,
         tps = durationMillis?.let { usage.completionTokens.toFloat() / it * 1000 },
     )

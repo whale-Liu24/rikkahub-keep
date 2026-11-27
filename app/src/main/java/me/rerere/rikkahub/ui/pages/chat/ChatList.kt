@@ -371,7 +371,7 @@ private fun ChatListNormal(
             LazyColumn(
                 state = state,
                 // 保留首条消息的顶栏间距，滚动内容由实底顶栏遮挡。
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 16.dp) + PaddingValues(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp) + PaddingValues(
                     top = innerPadding.calculateTopPadding(),
                     bottom = 32.dp + innerPadding.calculateBottomPadding(),
                 ),
