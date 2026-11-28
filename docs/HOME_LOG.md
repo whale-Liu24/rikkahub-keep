@@ -358,12 +358,65 @@
 
 ---
 
-## 16. 阶段 8：日志来源分类、思考链回传控制与内置提示词可编辑评估（⏳ 只读摸底中）
+## 16. 阶段 8.1（#20）：HTTP 日志显式来源分类与同轮归属展示（⏳ 待 #20 验收）
 
-- 评估 Logs 列表区分主对话、工具续轮、技能、记忆整理和系统请求，并展示同轮从属关系。
-- 核查历史轮次 `reasoning_content` 的回传机制与可控剥离方案。
-- 盘点仓库内硬编码的系统、记忆、整理和压缩提示词，评估 App 内的编辑入口。
-- 核查 `<time_reminder>` 独立 `user` 消息的结构及合并可行性。
+### 改动摘要
+
+- 在业务入口标注主对话、工具续轮、记忆整理、上下文压缩、标题和建议。共享的 OkHttp 请求构建助手仅用 `Request.tag` 传递追踪数据。覆盖 OpenAI Chat Completions / Responses、Claude、Gemini GenerateContent / Interactions，以及共享 Responses 构建器的 ChatGPT / Grok 账号端点。其他请求默认显示为系统。
+- 对话首发、工具调用、审批恢复和中途压缩续接使用同一组 ID 与递增步骤。网络重试沿用同一步。记忆整理独立成组，多步沿用记忆类别。标题、建议、手动压缩与轮外自动压缩各自独立成组。
+- Logs 默认显示全部，提供对话、记忆和其他筛选。卡片展示来源徽章、六位组短码、步骤、24 小时时间、模型、请求路径、已知请求体字节数、状态和耗时。续步用箭头及左侧细线标识。工具和成功加载的技能只记录名称，详情页显示完整组 ID 和元数据。
+- 新 JSONL 字段均有缺省值，#19 记录可原地恢复。沿用现有脱敏、Base64 瘦身、50 条及 8 MiB 限制、清空代次和 `noBackupFilesDir` 路径。
+
+### 新增文件
+
+- `ai/src/main/java/me/rerere/ai/agent/RequestLogGroup.kt`
+- `common/src/main/java/me/rerere/common/http/HttpRequestLogTrace.kt`
+
+### 修改文件
+
+- `ai/src/main/java/me/rerere/ai/agent/Agent.kt`
+- `ai/src/main/java/me/rerere/ai/agent/AgentLoop.kt`
+- `ai/src/main/java/me/rerere/ai/core/Tool.kt`
+- `ai/src/main/java/me/rerere/ai/provider/Provider.kt`
+- `ai/src/main/java/me/rerere/ai/provider/providers/claude/ClaudeProvider.kt`
+- `ai/src/main/java/me/rerere/ai/provider/providers/google/GoogleProvider.kt`
+- `ai/src/main/java/me/rerere/ai/provider/providers/google/InteractionsAPI.kt`
+- `ai/src/main/java/me/rerere/ai/provider/providers/openai/ChatCompletionsAPI.kt`
+- `ai/src/main/java/me/rerere/ai/provider/providers/openai/ResponseAPI.kt`
+- `ai/src/main/java/me/rerere/ai/ui/Message.kt`
+- `ai/src/main/java/me/rerere/ai/ui/UIMessagePart.kt`
+- `ai/src/main/java/me/rerere/ai/util/Request.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/ai/ChatRequestFactory.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/ai/ConversationMetaGenerator.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/ai/HomeHttpLogSanitizer.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/ai/MemoryConsolidator.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/ai/RequestLoggingInterceptor.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/ai/UsageRecorder.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/ai/tools/SkillsTools.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/model/ConversationFork.kt`
+- `app/src/main/java/me/rerere/rikkahub/service/ChatService.kt`
+- `app/src/main/java/me/rerere/rikkahub/ui/pages/log/LogPage.kt`
+- `app/src/main/res/values-zh-rTW/strings.xml`
+- `app/src/main/res/values-zh/strings.xml`
+- `app/src/main/res/values/strings.xml`
+- `app/src/test/java/me/rerere/rikkahub/data/ai/HomeHttpLogStoreTest.kt`
+- `common/src/main/java/me/rerere/common/android/Logging.kt`
+- `docs/HOME_LOG.md`
+
+### 验收清单
+
+- [x] 独立 JVM 核验通过 13 项日志回归测试，覆盖新旧 JSONL、请求 tag 隔离、工具与技能摘要、审批恢复、压缩续接和记忆整理步骤。
+- [x] 现有 AgentLoop JVM 测试 24 项通过。AI Provider 源码通过独立 Kotlin 编译。Logs 页面通过独立 Kotlin / Compose 编译检查，新增英文、简体及繁体中文资源通过 AAPT2 编译。
+- [ ] Run #20 通过现有 CI 单测闸门、正式签名构建、APK 校验和产物上传。
+- [ ] 用 #20 覆盖安装 #19，确认旧日志可展开，新日志可保存并在重启后恢复。确认日志开关、脱敏、Base64 瘦身和清空行为符合阶段 7 记录。
+- [ ] 在真机核对主对话、连续工具续轮、技能加载、审批恢复、中途压缩前后与记忆整理的组码和步骤。核对标题、建议、手动压缩分组，以及系统兜底。
+- [ ] 在深浅主题及窄屏核对筛选、徽章、续步标识、详情和 24 小时时间。
+
+### 后续排期
+
+- [ ] 阶段 8.2：历史 `reasoning_content` 回传升级三档控制（全部保留 / 仅当前工具循环保留 / 全部不回传）。
+- [ ] 阶段 8.3：开放硬编码记忆与压缩内置提示词编辑入口。
+- `<time_reminder>` 独立合成 `user` 保持原样，以维持缓存稳定与测试兼容。
 
 ### 收尾待办
 

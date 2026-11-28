@@ -35,7 +35,10 @@ internal fun Conversation.fork(
             node.copy(
                 id = Uuid.random(),
                 messages = node.messages.map { message ->
-                    message.copy(parts = message.parts.map { it.mapLocalFileUrls(copyFile) })
+                    message.copy(
+                        parts = message.parts.map { it.mapLocalFileUrls(copyFile) },
+                        requestLogPosition = null,
+                    )
                 },
             )
         },

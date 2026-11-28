@@ -11,6 +11,7 @@ import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentFinishReason
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
+import me.rerere.ai.agent.RequestLogGroup
 import me.rerere.ai.agent.StepRequest
 import me.rerere.ai.agent.runAgent
 import me.rerere.ai.core.MessageRole
@@ -183,6 +184,7 @@ class MemoryConsolidator(
         val systemPrompt = buildMemoryConsolidationPrompt(fullReview)
         // 整次整理的每一步用同一个会话 ID，服务端才能命中前面几步的缓存
         val params = backgroundTextGenerationParams(model, Uuid.random(), reasoningLevel)
+        val logGroup = RequestLogGroup()
         val hooks = object : AgentHooks {
             override suspend fun prepareStep(messages: List<UIMessage>): StepRequest {
                 val system = (listOf(systemPrompt) + tools.map { it.systemPrompt(model, messages) })
@@ -211,6 +213,8 @@ class MemoryConsolidator(
                 stream = false,
                 maxSteps = MAX_STEPS,
                 retry = settings.retryPolicy(),
+                logGroup = logGroup,
+                logCategory = UsageSource.MEMORY.logCategory,
             ),
             hooks = hooks,
         ).filterIsInstance<AgentEvent.Finished>().single()

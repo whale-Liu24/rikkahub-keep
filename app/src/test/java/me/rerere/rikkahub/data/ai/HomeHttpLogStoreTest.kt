@@ -1,19 +1,42 @@
 package me.rerere.rikkahub.data.ai
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.ai.agent.AgentEvent
+import me.rerere.ai.agent.AgentFinishReason
+import me.rerere.ai.agent.AgentHooks
+import me.rerere.ai.agent.AgentRequest
+import me.rerere.ai.agent.RequestLogGroup
+import me.rerere.ai.agent.StepRequest
+import me.rerere.ai.agent.runAgent
+import me.rerere.ai.core.MessageRole
+import me.rerere.ai.core.Tool
+import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.Provider
+import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.ai.provider.TextGenerationResult
+import me.rerere.ai.ui.ToolApprovalState
+import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.util.applyLogTrace
 import me.rerere.common.android.LogEntry
+import me.rerere.common.http.HttpRequestLogCategory
+import me.rerere.common.http.HttpRequestLogTrace
 import me.rerere.rikkahub.data.datastore.DisplaySetting
 import okhttp3.Headers.Companion.headersOf
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -175,6 +198,224 @@ class HomeHttpLogStoreTest {
         store.clear()
         testScheduler.runCurrent()
         assertFalse(path.exists())
+    }
+
+    @Test
+    fun persistsTraceFieldsAndRestoresStage19Entries() = runTest {
+        val path = temporary.root.resolve("history.jsonl")
+        val oldLine = """{"id":"12345678-1234-1234-1234-123456789abc","timestamp":1,"tag":"HTTP","url":"https://example.invalid/v1","method":"POST","responseCode":200}"""
+        path.writeText(oldLine + "\n")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var visible = emptyList<LogEntry.RequestLog>()
+        val store = HomeHttpLogStore(path, backgroundScope, { visible = it }, {}, dispatcher = dispatcher)
+        testScheduler.runCurrent()
+        val old = visible.single()
+        assertEquals(200, old.responseCode)
+        assertEquals(null, old.category)
+        assertEquals(null, old.groupId)
+        assertEquals(null, old.stepIndex)
+        assertEquals(null, old.modelName)
+        assertEquals(emptyList<String>(), old.toolNames)
+        assertEquals(emptyList<String>(), old.skillNames)
+        assertEquals(null, old.requestBodyBytes)
+
+        val new = entry(2).copy(
+            category = HttpRequestLogCategory.TOOL_CONTINUATION,
+            groupId = "fixture",
+            stepIndex = 2,
+            modelName = "fixture-model",
+            toolNames = listOf("use_skill", "fixture_tool"),
+            skillNames = listOf("fixture-skill"),
+            requestBodyBytes = 1024,
+        )
+        store.record(new, store.currentEpoch())
+        testScheduler.runCurrent()
+        var restored = emptyList<LogEntry.RequestLog>()
+        HomeHttpLogStore(path, backgroundScope, { restored = it }, {}, dispatcher = dispatcher)
+        testScheduler.runCurrent()
+        assertEquals(listOf(new, old), restored)
+    }
+
+    @Test
+    fun appliesTraceOnlyToOkHttpTag() {
+        val trace = HttpRequestLogTrace(
+            category = HttpRequestLogCategory.TOOL_CONTINUATION,
+            groupId = "fixture",
+            stepIndex = 2,
+            modelName = "fixture-model",
+            toolNames = listOf("use_skill"),
+            skillNames = listOf("fixture-skill"),
+        )
+        val plain = Request.Builder()
+            .url("https://example.invalid/v1")
+            .header("X-Session-ID", "original-session")
+            .post("{}".toRequestBody("application/json".toMediaType()))
+            .build()
+        val params = TextGenerationParams(model = Model(modelId = "fixture-model"), logTrace = trace)
+        val tagged = plain.newBuilder().applyLogTrace(params).build()
+
+        assertEquals(trace, tagged.tag(HttpRequestLogTrace::class.java))
+        assertEquals(trace, tagged.newBuilder().build().tag(HttpRequestLogTrace::class.java))
+        assertEquals(plain.headers, tagged.headers)
+        assertEquals(plain.url, tagged.url)
+        assertTrue(plain.body === tagged.body)
+        assertEquals(Json.encodeToString(params.copy(logTrace = null)), Json.encodeToString(params))
+        assertEquals(null, sanitizer.traceName("not a fixture identifier"))
+        assertEquals("fixture/model-1", sanitizer.traceName("fixture/model-1"))
+    }
+
+    @Test
+    fun chatTraceSurvivesApprovalAndInTurnCompression() = runTest {
+        val group = RequestLogGroup()
+        val traces = mutableListOf<HttpRequestLogTrace>()
+        val call = UIMessagePart.Tool(toolCallId = "fixture-call", toolName = "use_skill", input = "{}")
+        val model = Model(modelId = "fixture-model")
+        val adapter = recordingProvider(traces) { step ->
+            if (step == 1) listOf(call) else listOf(UIMessagePart.Text("fixture"))
+        }
+        val tool = Tool(
+            name = "use_skill",
+            description = "Fixture",
+            needsApproval = { true },
+            loadedSkillName = { "fixture-skill" },
+            execute = { listOf(UIMessagePart.Text("synthetic output")) },
+        )
+        val request = AgentRequest(
+            provider = adapter,
+            providerSetting = ProviderSetting.OpenAI(),
+            messages = listOf(UIMessage.user("synthetic request")),
+            tools = listOf(tool),
+            stream = false,
+            logGroup = group,
+            logCategory = HttpRequestLogCategory.CHAT,
+        )
+        val hooks = fixtureHooks(model)
+        val waiting = runAgent(request, hooks).toList().last() as AgentEvent.Finished
+        assertTrue(waiting.reason is AgentFinishReason.AwaitingApproval)
+        assertEquals(HttpRequestLogCategory.CHAT, traces.single().category)
+        assertEquals(1, traces.single().stepIndex)
+        assertEquals(emptyList<String>(), traces.single().toolNames)
+
+        val saved = waiting.message.copy(requestLogPosition = group.position())
+        val reloaded = Json.decodeFromString<UIMessage>(Json.encodeToString(saved))
+        val resumed = RequestLogGroup(checkNotNull(reloaded.requestLogPosition))
+        val approved = reloaded.copy(parts = listOf(call.copy(approvalState = ToolApprovalState.Approved)))
+        runAgent(request.copy(messages = request.messages + approved, logGroup = resumed), hooks).toList()
+        val followUp = traces[1]
+        assertEquals(traces[0].groupId, followUp.groupId)
+        assertEquals(2, followUp.stepIndex)
+        assertEquals(HttpRequestLogCategory.TOOL_CONTINUATION, followUp.category)
+        assertEquals(listOf("use_skill"), followUp.toolNames)
+        assertEquals(listOf("fixture-skill"), followUp.skillNames)
+
+        val compression = resumed.next(HttpRequestLogCategory.COMPRESS, model.modelId)
+        assertEquals(3, compression.stepIndex)
+        assertEquals(followUp.groupId, compression.groupId)
+        runAgent(request.copy(messages = request.messages, logGroup = resumed), hooks).toList()
+        assertEquals(HttpRequestLogCategory.TOOL_CONTINUATION, traces.last().category)
+        assertEquals(compression.groupId, traces.last().groupId)
+        assertEquals(4, traces.last().stepIndex)
+        assertEquals(emptyList<String>(), traces.last().toolNames)
+    }
+
+    @Test
+    fun memoryToolStepsShareOneGroupAndKeepTheMemoryCategory() = runTest {
+        val traces = mutableListOf<HttpRequestLogTrace>()
+        val provider = recordingProvider(traces) { step ->
+            if (step == 1) {
+                listOf(
+                    UIMessagePart.Tool("fixture-1", "memory_list", "{}"),
+                    UIMessagePart.Tool("fixture-2", "memory_list", "{}"),
+                )
+            } else {
+                listOf(UIMessagePart.Text("fixture"))
+            }
+        }
+        val request = AgentRequest(
+            provider = provider,
+            providerSetting = ProviderSetting.OpenAI(),
+            messages = listOf(UIMessage.user("synthetic task")),
+            tools = listOf(Tool(name = "memory_list", description = "Fixture", execute = {
+                listOf(UIMessagePart.Text("synthetic output"))
+            })),
+            stream = false,
+            logGroup = RequestLogGroup(),
+            logCategory = HttpRequestLogCategory.MEMORY,
+        )
+        runAgent(request, fixtureHooks(Model(modelId = "fixture-model"))).toList()
+
+        assertEquals(listOf(1, 2), traces.map { it.stepIndex })
+        assertEquals(1, traces.map { it.groupId }.distinct().size)
+        assertTrue(traces.all { it.category == HttpRequestLogCategory.MEMORY })
+        assertEquals(listOf("memory_list"), traces.last().toolNames)
+        assertEquals(emptyList<String>(), traces.last().skillNames)
+    }
+
+    @Test
+    fun pausedToolBatchIsRetainedWhenCompressionCannotReplaceTheReply() = runTest {
+        val traces = mutableListOf<HttpRequestLogTrace>()
+        val model = Model(modelId = "fixture-model")
+        val group = RequestLogGroup()
+        val provider = recordingProvider(traces) { step ->
+            if (step == 1) listOf(
+                UIMessagePart.Tool("fixture-call", "fixture_tool", "{}"),
+                UIMessagePart.Text("synthetic trailing text"),
+            ) else listOf(UIMessagePart.Text("fixture"))
+        }
+        val request = AgentRequest(
+            provider = provider,
+            providerSetting = ProviderSetting.OpenAI(),
+            messages = listOf(UIMessage.user("synthetic request")),
+            tools = listOf(Tool(name = "fixture_tool", description = "Fixture", execute = {
+                listOf(UIMessagePart.Text("synthetic output"))
+            })),
+            stream = false,
+            logGroup = group,
+            logCategory = HttpRequestLogCategory.CHAT,
+        )
+        val pausingHooks = object : AgentHooks by fixtureHooks(model) {
+            override suspend fun shouldPause(message: UIMessage) = true
+        }
+        val paused = runAgent(request, pausingHooks).toList().last() as AgentEvent.Finished
+        assertEquals(AgentFinishReason.Paused, paused.reason)
+        group.next(HttpRequestLogCategory.COMPRESS, model.modelId)
+
+        runAgent(request.copy(messages = request.messages + paused.message), fixtureHooks(model)).toList()
+        assertEquals(traces.first().groupId, traces.last().groupId)
+        assertEquals(3, traces.last().stepIndex)
+        assertEquals(listOf("fixture_tool"), traces.last().toolNames)
+    }
+
+    private fun fixtureHooks(model: Model) = object : AgentHooks {
+        override suspend fun prepareStep(messages: List<UIMessage>) =
+            StepRequest(messages, TextGenerationParams(model = model))
+    }
+
+    private fun recordingProvider(
+        traces: MutableList<HttpRequestLogTrace>,
+        reply: (Int) -> List<UIMessagePart>,
+    ): Provider<ProviderSetting> = object : Provider<ProviderSetting> {
+        override suspend fun listModels(providerSetting: ProviderSetting): List<Model> = emptyList()
+
+        override suspend fun generateText(
+            providerSetting: ProviderSetting,
+            messages: List<UIMessage>,
+            params: TextGenerationParams,
+        ): TextGenerationResult {
+            val trace = checkNotNull(params.logTrace)
+            traces.add(trace)
+            return TextGenerationResult(
+                id = "fixture",
+                model = params.model.modelId,
+                message = UIMessage(role = MessageRole.ASSISTANT, parts = reply(checkNotNull(trace.stepIndex))),
+            )
+        }
+
+        override suspend fun streamText(
+            providerSetting: ProviderSetting,
+            messages: List<UIMessage>,
+            params: TextGenerationParams,
+        ) = error("Fixture uses non-streaming generation")
     }
 
     private fun entry(index: Int) = LogEntry.RequestLog(

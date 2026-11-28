@@ -2,6 +2,7 @@ package me.rerere.ai.ui
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.util.json
@@ -191,6 +192,7 @@ sealed class UIMessagePart {
         // 本地执行的起止时间，只统计真正运行工具的耗时；拒绝、问答和旧消息都为空
         val startedAt: Instant? = null,
         val finishedAt: Instant? = null,
+        @Transient val loadedSkillName: String? = null,
     ) : UIMessagePart() {
         /** Whether the tool has been executed (has output) */
         val isExecuted: Boolean get() = output.isNotEmpty()

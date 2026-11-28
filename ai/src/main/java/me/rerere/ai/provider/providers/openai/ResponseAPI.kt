@@ -52,6 +52,7 @@ import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
+import me.rerere.ai.util.applyLogTrace
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.json
@@ -129,6 +130,7 @@ class ResponseAPI(
         val request = Request.Builder()
             .url(endpoint.url)
             .apply { endpoint.configureRequest(this) }
+            .applyLogTrace(params)
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
             .addHeader("Content-Type", "application/json")
             .build()
@@ -162,6 +164,7 @@ class ResponseAPI(
         val request = Request.Builder()
             .url(endpoint.url)
             .apply { endpoint.configureRequest(this) }
+            .applyLogTrace(params)
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
             .build()
 

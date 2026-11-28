@@ -2,6 +2,7 @@ package me.rerere.ai.core
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.provider.Model
@@ -15,6 +16,7 @@ data class Tool(
     val parameters: () -> InputSchema? = { null },
     val systemPrompt: (model: Model, messages: List<UIMessage>) -> String = { _, _ -> "" },
     val needsApproval: (JsonElement) -> Boolean = { false },
+    @Transient val loadedSkillName: (JsonElement) -> String? = { null },
     val execute: suspend (JsonElement) -> List<UIMessagePart>
 )
 

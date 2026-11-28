@@ -10,6 +10,7 @@ import me.rerere.ai.core.merge
 import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.common.http.HttpRequestLogCategory
 import me.rerere.ai.provider.TextGenerationResult
 import me.rerere.ai.ui.StreamChunk
 import me.rerere.ai.ui.UIMessage
@@ -29,6 +30,16 @@ enum class UsageSource {
     MEMORY,
     OCR,
 }
+
+internal val UsageSource.logCategory: HttpRequestLogCategory
+    get() = when (this) {
+        UsageSource.CHAT -> HttpRequestLogCategory.CHAT
+        UsageSource.COMPRESSION -> HttpRequestLogCategory.COMPRESS
+        UsageSource.TITLE -> HttpRequestLogCategory.TITLE
+        UsageSource.SUGGESTION -> HttpRequestLogCategory.SUGGESTION
+        UsageSource.MEMORY -> HttpRequestLogCategory.MEMORY
+        UsageSource.TRANSLATION, UsageSource.OCR -> HttpRequestLogCategory.SYSTEM
+    }
 
 /** 记录用量时附带的归属信息 */
 data class UsageTag(

@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentFinishReason
 import me.rerere.ai.agent.RetryAttempt
+import me.rerere.ai.agent.RequestLogGroup
 import me.rerere.ai.agent.runAgent
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.BuiltInTools
@@ -666,7 +667,7 @@ class ChatService(
 
                         // Only continue generation when all pending tools are handled
                         if (!updated.isAwaitingToolApproval) {
-                            runTurn(session)
+                            runTurn(session, resumeApproval = true)
                         }
 
                         _generationDoneFlow.emit(conversationId)
@@ -690,7 +691,11 @@ class ChatService(
      * 开了自动压缩时，工具执行完发现上下文占用达到阈值就在这里压缩，之后的步骤写进检查点后面新的一条回复。
      * 失败时报告错误、暂停消息队列并返回 [TurnResult.Failed]；取消时直接抛出。
      */
-    private suspend fun runTurn(session: ConversationSession, regenerateNodeId: Uuid? = null): TurnResult {
+    private suspend fun runTurn(
+        session: ConversationSession,
+        regenerateNodeId: Uuid? = null,
+        resumeApproval: Boolean = false,
+    ): TurnResult {
         val conversationId = session.id
         // 先清理上一轮状态；确定历史后，仅为真正的续写恢复消息 ID。
         session.replyMessageId.value = null
@@ -709,6 +714,12 @@ class ChatService(
             }
 
             var target = replyTargetOf(conversation, regenerateNodeId)
+            val savedLogPosition = if (resumeApproval && target.continuedMessageId != null) {
+                target.history.last().requestLogPosition
+            } else {
+                null
+            }
+            val logGroup = savedLogPosition?.let(::RequestLogGroup) ?: RequestLogGroup()
             // 接着上一条助手消息写时就是它，否则等第一次输出。要在 createContext 之前换掉，
             // 它会挂起也可能失败，期间或失败后不能还指着上一轮的回复
             session.replyMessageId.value = target.continuedMessageId
@@ -735,6 +746,7 @@ class ChatService(
                         turn = turn,
                         messages = target.history,
                         processingStatus = session.processingStatus,
+                        logGroup = logGroup,
                         takePendingParts = session.inbox::takeNotices,
                         pauseAfterTools = pause@{ message ->
                             if (!canCompress || compressionUseless) return@pause false
@@ -754,7 +766,8 @@ class ChatService(
                             is AgentEvent.MessageUpdated -> {
                                 // 生成过程中只有网络重试的提示会留着，收到新内容说明重试已经成功
                                 session.processingStatus.value = null
-                                session.update { it.upsertMessage(replyNodeId, event.message) }
+                                val reply = event.message.copy(requestLogPosition = logGroup.position())
+                                session.update { it.upsertMessage(replyNodeId, reply) }
                                 session.replyMessageId.value = event.message.id
                                 // 通知等边缘副作用由 ChatNotificationManager 消费；
                                 // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
@@ -776,7 +789,7 @@ class ChatService(
                     }
                     if (finishReason != AgentFinishReason.Paused) break
 
-                    afterCompression = compressMidTurn(session)
+                    afterCompression = compressMidTurn(session, logGroup)
                     // 压缩成功：检查点在末尾，新开一条回复；失败：接着刚才那条回复写
                     target = replyTargetOf(session.state.value, regenerateNodeId = null)
                     session.replyMessageId.value = target.continuedMessageId
@@ -1051,7 +1064,7 @@ class ChatService(
      *
      * @return 是否压缩成功；失败时报告错误，这一轮照常继续
      */
-    private suspend fun compressMidTurn(session: ConversationSession): Boolean {
+    private suspend fun compressMidTurn(session: ConversationSession, logGroup: RequestLogGroup): Boolean {
         val reply = session.state.value.currentMessages.lastOrNull { it.role == MessageRole.ASSISTANT }
         session.autoCompressedReplyId = reply?.id
         // 压缩前把已经生成的内容存下来
@@ -1065,6 +1078,7 @@ class ChatService(
                 keepRecentMessages = 0,
                 clearSuggestions = false,
                 midTurn = true,
+                logGroup = logGroup,
             )
             true
         } catch (e: Exception) {
@@ -1089,6 +1103,7 @@ class ChatService(
         keepRecentMessages: Int,
         clearSuggestions: Boolean,
         midTurn: Boolean = false,
+        logGroup: RequestLogGroup = RequestLogGroup(),
     ) {
         val conversation = session.state.value
         val nodes = conversation.messageNodes
@@ -1123,6 +1138,7 @@ class ChatService(
                 locale = Locale.getDefault().displayName,
                 midTurn = midTurn,
             ),
+            logGroup = logGroup,
         )
 
         // 原消息原样保留，摘要插在压缩范围的最后一条消息之后。摘要生成期间对话可能已变化，

@@ -31,6 +31,7 @@ internal class AgentLoop(
     private val events: FlowCollector<AgentEvent>,
 ) {
     private val history: List<UIMessage>
+    private var justReturnedToolIds: Set<String>? = null
 
     // 本轮的助手消息；新的一轮在第一次请求模型时才创建
     private var message: UIMessage?
@@ -61,7 +62,10 @@ internal class AgentLoop(
             }
             if (steps == request.maxSteps) return finish(AgentFinishReason.StepLimitReached)
             // 只在刚执行完工具时问：接着一条已经执行完的消息继续时不问，否则暂停之后再运行又会立刻暂停
-            if (toolsExecuted && hooks.shouldPause(checkNotNull(message))) return finish(AgentFinishReason.Paused)
+            if (toolsExecuted && hooks.shouldPause(checkNotNull(message))) {
+                request.logGroup?.rememberPausedTools(checkNotNull(message).id, justReturnedToolIds.orEmpty())
+                return finish(AgentFinishReason.Paused)
+            }
             generateStep()
             steps++
         }
@@ -89,7 +93,17 @@ internal class AgentLoop(
         appendPendingParts()
         val current = message
         val step = hooks.prepareStep(if (current == null) history else history + current)
-        val params = step.params.copy(tools = request.tools)
+        val pausedToolIds = request.logGroup?.takePausedTools(current?.id)
+        val returnedTools = current?.returnedTools(justReturnedToolIds ?: pausedToolIds).orEmpty()
+        val knownTools = returnedTools.filter { findTool(it.toolName) != null }
+        val trace = request.logGroup?.next(
+            category = request.logCategory,
+            modelName = step.params.model.modelId,
+            toolNames = knownTools.map { it.toolName },
+            skillNames = knownTools.mapNotNull { it.loadedSkillName },
+            followsToolResult = returnedTools.isNotEmpty(),
+        )
+        val params = step.params.copy(tools = request.tools, logTrace = trace ?: step.params.logTrace)
         // 只带着追加内容创建的消息还没有模型 id
         val base = current?.let { it.copy(modelId = it.modelId ?: params.model.id) } ?: UIMessage(
             role = MessageRole.ASSISTANT,
@@ -175,15 +189,29 @@ internal class AgentLoop(
     // 按调用顺序逐个执行，每执行完一个就更新一次，中途取消时已经执行的结果不会丢
     private suspend fun executeTools() {
         val tools = checkNotNull(message).getTools().filter { !it.isExecuted }
+        justReturnedToolIds = tools.mapTo(mutableSetOf()) { it.toolCallId }
         for (tool in tools) {
             // 只给真正运行的工具计时；开始时先写一次，界面才能在执行中实时显示耗时
             val runs = tool.approvalState == ToolApprovalState.Auto || tool.approvalState == ToolApprovalState.Approved
             if (runs) updateTool(tool.toolCallId) { it.copy(startedAt = Clock.System.now(), finishedAt = null) }
-            val output = execute(tool)
+            val result = execute(tool)
             updateTool(tool.toolCallId) {
-                it.copy(output = output, finishedAt = if (runs) Clock.System.now() else it.finishedAt)
+                it.copy(
+                    output = result.output,
+                    finishedAt = if (runs) Clock.System.now() else it.finishedAt,
+                    loadedSkillName = result.loadedSkillName,
+                )
             }
         }
+    }
+
+    private fun UIMessage.returnedTools(ids: Set<String>?): List<UIMessagePart.Tool> {
+        if (ids != null) return getTools().filter { it.isExecuted && it.toolCallId in ids }
+        // A resumed loop may start immediately after an already executed batch.
+        return parts.asReversed()
+            .takeWhile { it is UIMessagePart.Notice || (it is UIMessagePart.Tool && it.isExecuted) }
+            .filterIsInstance<UIMessagePart.Tool>()
+            .asReversed()
     }
 
     private suspend fun updateTool(toolCallId: String, transform: (UIMessagePart.Tool) -> UIMessagePart.Tool) {
@@ -197,27 +225,34 @@ internal class AgentLoop(
         )
     }
 
-    private suspend fun execute(tool: UIMessagePart.Tool): List<UIMessagePart> =
-        when (val state = tool.approvalState) {
-            is ToolApprovalState.Denied -> errorOutput(
-                "Tool execution denied by user. Reason: ${state.reason.ifBlank { "No reason provided" }}"
-            )
+    private data class ToolExecution(
+        val output: List<UIMessagePart>,
+        val loadedSkillName: String? = null,
+    )
 
-            is ToolApprovalState.Answered -> listOf(UIMessagePart.Text(state.answer))
+    private suspend fun execute(tool: UIMessagePart.Tool): ToolExecution =
+        when (val state = tool.approvalState) {
+            is ToolApprovalState.Denied -> ToolExecution(errorOutput(
+                "Tool execution denied by user. Reason: ${state.reason.ifBlank { "No reason provided" }}"
+            ))
+
+            is ToolApprovalState.Answered -> ToolExecution(listOf(UIMessagePart.Text(state.answer)))
             ToolApprovalState.Auto, ToolApprovalState.Approved -> runTool(tool)
             ToolApprovalState.Pending -> error("Tool ${tool.toolCallId} is still waiting for approval")
         }
 
-    private suspend fun runTool(tool: UIMessagePart.Tool): List<UIMessagePart> = try {
+    private suspend fun runTool(tool: UIMessagePart.Tool): ToolExecution = try {
         val definition = findTool(tool.toolName) ?: error("Tool ${tool.toolName} not found")
         val args = runCatching { json.parseToJsonElement(tool.input.ifBlank { "{}" }) }
             .getOrElse { error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}") }
-        definition.execute(args).ifEmpty { listOf(UIMessagePart.Text(EMPTY_TOOL_OUTPUT)) }
+        val output = definition.execute(args)
+        val skill = if (request.logGroup == null) null else runCatching { definition.loadedSkillName(args) }.getOrNull()
+        ToolExecution(output.ifEmpty { listOf(UIMessagePart.Text(EMPTY_TOOL_OUTPUT)) }, skill)
     } catch (e: CancellationException) {
         // 取消必须向上传播，否则停止生成会被误报为工具执行错误
         throw e
     } catch (e: Throwable) {
-        errorOutput("[${e.javaClass.name}] ${e.message}\n${e.stackTraceToString()}")
+        ToolExecution(errorOutput("[${e.javaClass.name}] ${e.message}\n${e.stackTraceToString()}"))
     }
 
     private fun findTool(name: String) = request.tools.find { it.name == name }

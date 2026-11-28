@@ -8,6 +8,8 @@ import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.provider.CustomBody
 import me.rerere.ai.provider.CustomHeader
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.common.http.HttpRequestLogTrace
 import me.rerere.common.http.await
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -50,6 +52,9 @@ fun Request.Builder.configureReferHeaders(url: String): Request.Builder {
         else -> this
     }
 }
+
+fun Request.Builder.applyLogTrace(params: TextGenerationParams): Request.Builder =
+    tag(HttpRequestLogTrace::class.java, params.logTrace ?: HttpRequestLogTrace(modelName = params.model.modelId))
 
 fun Request.Builder.configureSessionHeaders(url: String, sessionId: String?): Request.Builder = apply {
     if (sessionId != null) {

@@ -21,6 +21,8 @@ fun createSkillTools(
     val available = allSkills.filter { it.name in enabledSkills }
     if (available.isEmpty()) return emptyList()
 
+    fun findSkill(name: String) = available.firstOrNull { it.name == name || it.name.escapeXml() == name }
+
     return listOf(
         Tool(
             name = "use_skill",
@@ -62,11 +64,14 @@ fun createSkillTools(
                     required = listOf("name")
                 )
             },
+            loadedSkillName = { input ->
+                input.jsonObject["name"]?.jsonPrimitive?.content?.let(::findSkill)?.name
+            },
             execute = {
                 val name = it.jsonObject["name"]?.jsonPrimitive?.content
                     ?: error("name is required")
                 // 模型可能照抄系统提示中转义后的名称，两种形式都接受
-                val skill = available.firstOrNull { skill -> skill.name == name || skill.name.escapeXml() == name }
+                val skill = findSkill(name)
                     ?: error("Skill '$name' is not available. Available skills: ${available.joinToString { it.name }}")
                 val path = it.jsonObject["path"]?.jsonPrimitive?.content
                 val content = if (path.isNullOrBlank()) {

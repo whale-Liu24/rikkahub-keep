@@ -2,6 +2,8 @@ package me.rerere.rikkahub.data.ai
 
 import me.rerere.common.android.LogEntry
 import me.rerere.common.android.Logging
+import me.rerere.common.http.HttpRequestLogCategory
+import me.rerere.common.http.HttpRequestLogTrace
 import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
@@ -14,12 +16,20 @@ internal class RequestLoggingInterceptor(private val store: HomeHttpLogStore) : 
         val epoch = store.currentEpoch()
         val started = System.nanoTime()
         val sanitizer = HomeHttpLogSanitizer
+        val trace = request.tag(HttpRequestLogTrace::class.java)
         val entry = LogEntry.RequestLog(
             tag = "HTTP",
             url = sanitizer.url(request.url),
             method = request.method,
             requestHeaders = sanitizer.headers(request.headers),
             requestBody = sanitizer.captureBody(request.body),
+            category = trace?.category ?: HttpRequestLogCategory.SYSTEM,
+            groupId = trace?.groupId,
+            stepIndex = trace?.stepIndex,
+            modelName = trace?.modelName?.let(sanitizer::traceName),
+            toolNames = trace?.toolNames.orEmpty().mapNotNull(sanitizer::traceName),
+            skillNames = trace?.skillNames.orEmpty().mapNotNull(sanitizer::traceName),
+            requestBodyBytes = request.header("Content-Length")?.toLongOrNull()?.takeIf { request.body != null && it >= 0 },
         )
 
         val response = try {

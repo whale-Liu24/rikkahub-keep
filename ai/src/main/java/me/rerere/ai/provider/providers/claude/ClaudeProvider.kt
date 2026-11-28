@@ -62,6 +62,7 @@ import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
+import me.rerere.ai.util.applyLogTrace
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.json
@@ -304,6 +305,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .addHeader("anthropic-version", ANTHROPIC_VERSION)
             .configureReferHeaders(providerSetting.baseUrl)
             .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
+            .applyLogTrace(params)
             .build()
 
         logRequestBody(TAG, "generateText") { json.encodeToString(requestBody) }
@@ -355,6 +357,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .addHeader("Content-Type", "application/json")
             .configureReferHeaders(providerSetting.baseUrl)
             .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
+            .applyLogTrace(params)
             .build()
 
         logRequestBody(TAG, "streamText") { json.encodeToString(requestBody) }

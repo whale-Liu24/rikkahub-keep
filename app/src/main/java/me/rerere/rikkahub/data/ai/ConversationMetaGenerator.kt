@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.ai
 
+import me.rerere.ai.agent.RequestLogGroup
 import android.content.Context
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderManager
@@ -79,7 +80,8 @@ class ConversationMetaGenerator(
                     )
                 ),
             ),
-            params = backgroundTextGenerationParams(model, conversation.id, settings.fastModelReasoningLevel),
+            params = backgroundTextGenerationParams(model, conversation.id, settings.fastModelReasoningLevel)
+                .copy(logTrace = RequestLogGroup().next(source.logCategory, model.modelId)),
         )
         return result.message.toText()
     }

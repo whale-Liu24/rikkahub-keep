@@ -16,6 +16,10 @@ import okio.buffer
 import java.io.IOException
 
 internal object HomeHttpLogSanitizer {
+    private val traceNamePattern = Regex("[\\p{L}\\p{N}._/@:+-]{1,160}")
+    fun traceName(name: String): String? =
+        name.takeIf { traceNamePattern.matches(it) && sanitizeInline(it) == it }
+
     const val MAX_CAPTURE_BYTES = 4 * 1024 * 1024L
     const val MAX_BODY_BYTES = 512 * 1024
     private const val MAX_METADATA_CHARS = 4096

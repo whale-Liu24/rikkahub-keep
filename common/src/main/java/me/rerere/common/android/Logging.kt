@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
+import me.rerere.common.http.HttpRequestLogCategory
 import kotlin.uuid.Uuid
 
 private const val MAX_RECENT_LOGS = 100
@@ -34,7 +35,14 @@ sealed class LogEntry {
         val responseCode: Int? = null,
         val responseHeaders: Map<String, String> = emptyMap(),
         val durationMs: Long? = null,
-        val error: String? = null
+        val error: String? = null,
+        val category: HttpRequestLogCategory? = null,
+        val groupId: String? = null,
+        val stepIndex: Int? = null,
+        val modelName: String? = null,
+        val toolNames: List<String> = emptyList(),
+        val skillNames: List<String> = emptyList(),
+        val requestBodyBytes: Long? = null,
     ) : LogEntry()
 }
 

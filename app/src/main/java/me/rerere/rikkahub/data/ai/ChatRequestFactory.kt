@@ -8,6 +8,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
+import me.rerere.ai.agent.RequestLogGroup
 import me.rerere.ai.agent.RetryPolicy
 import me.rerere.ai.agent.StepRequest
 import me.rerere.ai.agent.expandNotices
@@ -135,6 +136,7 @@ class ChatRequestFactory(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         processingStatus: MutableStateFlow<String?>,
+        logGroup: RequestLogGroup,
         takePendingParts: suspend () -> List<UIMessagePart> = { emptyList() },
         pauseAfterTools: (UIMessage) -> Boolean = { false },
     ): Pair<AgentRequest, AgentHooks> {
@@ -148,6 +150,8 @@ class ChatRequestFactory(
             tools = turn.tools,
             stream = turn.assistant.streamOutput,
             retry = turn.settings.retryPolicy(),
+            logGroup = logGroup,
+            logCategory = UsageSource.CHAT.logCategory,
         )
         val hooks = object : AgentHooks {
             override suspend fun prepareStep(messages: List<UIMessage>): StepRequest {
@@ -185,11 +189,12 @@ class ChatRequestFactory(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         compressPrompt: String,
+        logGroup: RequestLogGroup,
     ): String {
         // 组装请求要把全部历史过一遍输入转换器，长对话要算好几秒：不能放在调用方的主线程上，
         // 这段纯计算里也检查不到取消。放进独立的协程，调用方取消时 await 立刻返回、不用等它算完；
         // 没算完的那份同时被取消，在下一个挂起点停下，最迟在发出请求之前
-        val work = CoroutineScope(Dispatchers.IO).async { requestCompressionSummary(turn, messages, compressPrompt) }
+        val work = CoroutineScope(Dispatchers.IO).async { requestCompressionSummary(turn, messages, compressPrompt, logGroup) }
         return try {
             work.await()
         } finally {
@@ -201,8 +206,10 @@ class ChatRequestFactory(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         compressPrompt: String,
+        logGroup: RequestLogGroup,
     ): String {
         val (requestMessages, params) = buildStep(turn, messages)
+        val trace = logGroup.next(UsageSource.COMPRESSION.logCategory, turn.model.modelId)
         // 压缩指令不经过输入转换器，模板转换器会把其中的花括号当成模板语法
         val result = withRetry(
             policy = turn.settings.retryPolicy(),
@@ -215,7 +222,7 @@ class ChatRequestFactory(
                 providerSetting = turn.providerSetting,
                 messages = requestMessages + UIMessage.user(compressPrompt),
                 // 助手的输出上限是给聊天回复定的，结构化摘要写不完会被截断；max_tokens 不属于请求前缀，改了不影响缓存
-                params = params.copy(maxTokens = null),
+                params = params.copy(maxTokens = null, logTrace = trace),
             )
         }
         val summary = result.message.compressionSummaryOrNull()

@@ -8,6 +8,9 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Copy01
 import me.rerere.hugeicons.stroke.Delete01
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +22,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,12 +43,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -51,6 +61,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import me.rerere.common.android.LogEntry
 import me.rerere.common.android.Logging
+import me.rerere.common.http.HttpRequestLogCategory
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.HomeHttpLogStore
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -121,7 +133,10 @@ private fun UnifiedLogList(
     var selectedLog by remember { mutableStateOf<LogEntry.RequestLog?>(null) }
     val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
     val scope = rememberCoroutineScope()
-    val sortedLogs = remember(logs) { logs.sortedByDescending { it.timestamp } }
+    var filter by rememberSaveable { mutableStateOf(LogFilter.ALL) }
+    val sortedLogs = remember(logs, filter) {
+        logs.filter(filter::includes).sortedByDescending { it.timestamp }
+    }
 
     LazyColumn(
         modifier = modifier,
@@ -133,6 +148,21 @@ private fun UnifiedLogList(
                 enabled = requestLoggingEnabled,
                 onEnabledChange = onRequestLoggingChange
             )
+        }
+
+        item {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                LogFilter.entries.forEach { option ->
+                    FilterChip(
+                        selected = filter == option,
+                        onClick = { filter = option },
+                        label = { Text(stringResource(option.title)) },
+                    )
+                }
+            }
         }
 
         items(sortedLogs, key = { it.id }, contentType = { it.javaClass.simpleName }) { log ->
@@ -195,72 +225,166 @@ private fun RequestLoggingSwitchCard(
     }
 }
 
+private enum class LogFilter(val title: Int) {
+    ALL(R.string.log_page_filter_all),
+    CHAT(R.string.log_page_filter_chat),
+    MEMORY(R.string.log_page_filter_memory),
+    OTHER(R.string.log_page_filter_other);
+
+    fun includes(log: LogEntry): Boolean = when (this) {
+        ALL -> true
+        CHAT -> log is LogEntry.RequestLog && log.source in chatSources
+        MEMORY -> log is LogEntry.RequestLog && log.source == HttpRequestLogCategory.MEMORY
+        OTHER -> log is LogEntry.TextLog || (log is LogEntry.RequestLog &&
+            log.source !in chatSources && log.source != HttpRequestLogCategory.MEMORY)
+    }
+}
+
+private val chatSources = setOf(HttpRequestLogCategory.CHAT, HttpRequestLogCategory.TOOL_CONTINUATION)
+
+private val LogEntry.RequestLog.source: HttpRequestLogCategory
+    get() = category ?: HttpRequestLogCategory.SYSTEM
+
+private val HttpRequestLogCategory.title: Int
+    get() = when (this) {
+        HttpRequestLogCategory.CHAT -> R.string.log_page_source_chat
+        HttpRequestLogCategory.TOOL_CONTINUATION -> R.string.log_page_source_tool
+        HttpRequestLogCategory.MEMORY -> R.string.log_page_source_memory
+        HttpRequestLogCategory.COMPRESS -> R.string.log_page_source_compress
+        HttpRequestLogCategory.TITLE -> R.string.log_page_source_title
+        HttpRequestLogCategory.SUGGESTION -> R.string.log_page_source_suggestion
+        HttpRequestLogCategory.SYSTEM -> R.string.log_page_source_system
+    }
+
+private val LogEntry.RequestLog.isFollowUp: Boolean
+    get() = groupId != null && (stepIndex ?: 0) > 1
+
+private fun String.logGroupCode(): String = take(6).uppercase(Locale.ROOT)
+
+private fun Long.formatBodySize(): String = when {
+    this < 1_024 -> "$this B"
+    this < 1_048_576 -> String.format(Locale.getDefault(), "%.0f KiB", this / 1_024.0)
+    else -> String.format(Locale.getDefault(), "%.1f MiB", this / 1_048_576.0)
+}
+
 @Composable
 private fun RequestLogCard(log: LogEntry.RequestLog, onClick: () -> Unit) {
     val dateFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+    val colors = MaterialTheme.colorScheme
+    val badgeColors = when (log.source) {
+        HttpRequestLogCategory.CHAT -> colors.primaryContainer to colors.onPrimaryContainer
+        HttpRequestLogCategory.TOOL_CONTINUATION -> colors.secondaryContainer to colors.onSecondaryContainer
+        HttpRequestLogCategory.MEMORY -> colors.tertiaryContainer to colors.onTertiaryContainer
+        HttpRequestLogCategory.COMPRESS -> colors.secondaryContainer to colors.onSecondaryContainer
+        HttpRequestLogCategory.TITLE, HttpRequestLogCategory.SUGGESTION ->
+            colors.surfaceContainerHighest to colors.primary
+        HttpRequestLogCategory.SYSTEM -> colors.surfaceContainerHighest to colors.onSurfaceVariant
+    }
+    val groupStep = buildList {
+        log.groupId?.let { add("#${it.logGroupCode()}") }
+        log.stepIndex?.let { add(stringResource(R.string.log_page_step, it)) }
+    }.joinToString(" · ")
+    val location = remember(log.url) {
+        log.url.toHttpUrlOrNull()?.let { it.host + it.encodedPath } ?: log.url
+    }
+    val metrics = listOfNotNull(
+        log.requestBodyBytes?.formatBodySize(),
+        log.responseCode?.toString(),
+        log.durationMs?.let { "${it}ms" },
+    ).joinToString(" · ")
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CustomColors.cardColorsOnSurfaceContainer,
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    if (log.isFollowUp) {
+                        val x = 2.dp.toPx()
+                        drawLine(
+                            color = badgeColors.second.copy(alpha = 0.40f),
+                            start = Offset(x, 0f),
+                            end = Offset(x, size.height),
+                            strokeWidth = 2.dp.toPx(),
+                        )
+                    }
+                }
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                Surface(shape = CircleShape, color = badgeColors.first, contentColor = badgeColors.second) {
+                    Text(
+                        text = stringResource(log.source.title),
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                }
                 Text(
-                    text = log.method,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    text = if (log.isFollowUp) "↳ $groupStep" else groupStep,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = dateFormat.format(Date(log.timestamp)),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
                 )
             }
 
-            Text(
-                text = log.url,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = JetbrainsMono,
-                maxLines = 2
-            )
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                log.responseCode?.let { code ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = listOfNotNull(log.modelName, "${log.method} $location").joinToString(" · "),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (metrics.isNotEmpty()) {
                     Text(
-                        text = "Status: $code",
+                        text = metrics,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (code in 200..299) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        }
-                    )
-                }
-                log.durationMs?.let { duration ->
-                    Text(
-                        text = "${duration}ms",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (log.responseCode?.let { it >= 400 } == true) colors.error else colors.onSurfaceVariant,
+                        maxLines = 1,
                     )
                 }
             }
 
+            val triggers = buildList {
+                if (log.toolNames.isNotEmpty()) {
+                    add(stringResource(R.string.log_page_trigger_tools, log.toolNames.joinToString()))
+                }
+                if (log.skillNames.isNotEmpty()) {
+                    add(stringResource(R.string.log_page_trigger_skills, log.skillNames.joinToString()))
+                }
+            }
+            if (triggers.isNotEmpty()) {
+                Text(
+                    text = triggers.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             log.error?.let { error ->
                 Text(
-                    text = "Error: $error",
+                    text = error,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error
+                    color = colors.error,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -286,6 +410,28 @@ private fun RequestLogDetail(log: LogEntry.RequestLog) {
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
+            }
+
+            item {
+                DetailSection(stringResource(R.string.log_page_detail_source), stringResource(log.source.title))
+            }
+            log.groupId?.let { groupId ->
+                item { DetailSection(stringResource(R.string.log_page_detail_group), "#${groupId.logGroupCode()} · $groupId") }
+            }
+            log.stepIndex?.let { step ->
+                item { DetailSection(stringResource(R.string.log_page_detail_step), step.toString()) }
+            }
+            log.modelName?.let { model ->
+                item { DetailSection(stringResource(R.string.log_page_detail_model), model) }
+            }
+            if (log.toolNames.isNotEmpty()) {
+                item { DetailSection(stringResource(R.string.log_page_detail_tools), log.toolNames.joinToString()) }
+            }
+            if (log.skillNames.isNotEmpty()) {
+                item { DetailSection(stringResource(R.string.log_page_detail_skills), log.skillNames.joinToString()) }
+            }
+            log.requestBodyBytes?.let { bytes ->
+                item { DetailSection(stringResource(R.string.log_page_detail_size), bytes.formatBodySize()) }
             }
 
             item {

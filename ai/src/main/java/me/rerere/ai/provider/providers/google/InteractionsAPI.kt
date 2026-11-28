@@ -46,6 +46,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.configureReferHeaders
+import me.rerere.ai.util.applyLogTrace
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.json
@@ -193,6 +194,7 @@ internal class InteractionsAPI(
             .url(url)
             .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
             .configureSessionHeaders(url, params.sessionId)
+            .applyLogTrace(params)
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
