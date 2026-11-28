@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import me.rerere.ui.toast.ToastType
 import me.rerere.ai.provider.ClaudePromptCacheTtl
+import me.rerere.ai.provider.HistoryReasoningMode
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.ProviderQuota
 import me.rerere.ai.provider.UsageWindow
@@ -351,11 +352,40 @@ private fun ProviderConfigureOpenAI(
             },
             headlineContent = { Text(stringResource(R.string.setting_provider_page_response_api)) },
         )
-        switchItem(
-            checked = provider.includeHistoryReasoning,
-            onCheckedChange = { onEdit(provider.copy(includeHistoryReasoning = it)) },
-            headlineContent = { Text(stringResource(R.string.setting_provider_page_include_history_reasoning)) },
-        )
+        if (!provider.useResponseApi) {
+            val mode = provider.resolvedHistoryReasoningMode()
+            formItem(
+                headlineContent = { Text(stringResource(R.string.setting_provider_page_include_history_reasoning)) },
+                supportingContent = {
+                    val description = when (mode) {
+                        HistoryReasoningMode.ALL -> R.string.setting_provider_page_reasoning_all_description
+                        HistoryReasoningMode.CURRENT_TURN_ONLY -> R.string.setting_provider_page_reasoning_current_description
+                        HistoryReasoningMode.NONE -> R.string.setting_provider_page_reasoning_none_description
+                    }
+                    Text(stringResource(description))
+                },
+            ) {
+                ConnectedChoiceButtons(
+                    options = HistoryReasoningMode.entries,
+                    selected = mode,
+                    onSelect = { selectedMode ->
+                        onEdit(
+                            provider.copy(
+                                historyReasoningMode = selectedMode,
+                                includeHistoryReasoning = selectedMode != HistoryReasoningMode.NONE,
+                            )
+                        )
+                    },
+                ) { option, selected ->
+                    val label = when (option) {
+                        HistoryReasoningMode.ALL -> R.string.setting_provider_page_reasoning_all
+                        HistoryReasoningMode.CURRENT_TURN_ONLY -> R.string.setting_provider_page_reasoning_current
+                        HistoryReasoningMode.NONE -> R.string.setting_provider_page_reasoning_none
+                    }
+                    ConnectedChoiceLabel(text = stringResource(label), selected = selected)
+                }
+            }
+        }
     }
 }
 

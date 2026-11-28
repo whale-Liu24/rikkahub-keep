@@ -77,6 +77,8 @@ data class TextGenerationParams(
     val customBody: List<CustomBody> = emptyList(),
     val sessionId: String? = Uuid.random().toString(),
     @Transient val logTrace: HttpRequestLogTrace? = null,
+    // Identity of the assistant message being resumed after tool results.
+    @Transient val activeAssistantMessageId: Uuid? = null,
 )
 
 @Serializable

@@ -103,7 +103,14 @@ internal class AgentLoop(
             skillNames = knownTools.mapNotNull { it.loadedSkillName },
             followsToolResult = returnedTools.isNotEmpty(),
         )
-        val params = step.params.copy(tools = request.tools, logTrace = trace ?: step.params.logTrace)
+        val params = step.params.copy(
+            tools = request.tools,
+            logTrace = trace ?: step.params.logTrace,
+            // A resumed reply can already have partial text after its last tool result.
+            activeAssistantMessageId = current?.takeIf { message ->
+                message.parts.any { it is UIMessagePart.Tool && it.isExecuted }
+            }?.id,
+        )
         // 只带着追加内容创建的消息还没有模型 id
         val base = current?.let { it.copy(modelId = it.modelId ?: params.model.id) } ?: UIMessage(
             role = MessageRole.ASSISTANT,

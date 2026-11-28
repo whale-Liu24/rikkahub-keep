@@ -358,7 +358,9 @@
 
 ---
 
-## 16. 阶段 8.1（#20）：HTTP 日志显式来源分类与同轮归属展示（⏳ 待 #20 验收）
+## 16. 阶段 8.1（#20）：HTTP 日志显式来源分类与同轮归属展示（✅ 已完成）
+
+- 提交 [`c5cac12`](https://github.com/whale-Liu24/rikkahub-keep/commit/c5cac12a5a09ffea61897862237004d3d432d037)。[Run #20](https://github.com/whale-Liu24/rikkahub-keep/actions/runs/46170543387) 成功，工作流耗时 10m 22s，`build` 作业耗时 10m 17s。
 
 ### 改动摘要
 
@@ -407,16 +409,50 @@
 
 - [x] 独立 JVM 核验通过 13 项日志回归测试，覆盖新旧 JSONL、请求 tag 隔离、工具与技能摘要、审批恢复、压缩续接和记忆整理步骤。
 - [x] 现有 AgentLoop JVM 测试 24 项通过。AI Provider 源码通过独立 Kotlin 编译。Logs 页面通过独立 Kotlin / Compose 编译检查，新增英文、简体及繁体中文资源通过 AAPT2 编译。
-- [ ] Run #20 通过现有 CI 单测闸门、正式签名构建、APK 校验和产物上传。
-- [ ] 用 #20 覆盖安装 #19，确认旧日志可展开，新日志可保存并在重启后恢复。确认日志开关、脱敏、Base64 瘦身和清空行为符合阶段 7 记录。
-- [ ] 在真机核对主对话、连续工具续轮、技能加载、审批恢复、中途压缩前后与记忆整理的组码和步骤。核对标题、建议、手动压缩分组，以及系统兜底。
-- [ ] 在深浅主题及窄屏核对筛选、徽章、续步标识、详情和 24 小时时间。
+- [x] Run #20 通过现有 CI 单测闸门、正式签名构建、APK 校验和产物上传。
+- [x] 按真机反馈，#19 旧日志可兼容显示，来源兜底为系统，在「其他」筛选下可见。
+- [x] 按真机反馈，主对话与工具续轮同轮分组，工具名摘要清晰。
+- [x] 按真机反馈，顶部来源筛选条生效。
+- [ ] 后台记忆整理、审批恢复及压缩分组待按需实机覆盖。标题、建议、技能摘要、重启后恢复、深浅主题及窄屏等分支待按需复核。
+
+---
+
+## 17. 阶段 8.2（#21）：OpenAI 兼容历史思考链回传三档控制（⏳ 待 #21 验收）
+
+### 改动摘要
+
+- OpenAI 兼容供应商的「思考过程回传」提供全部保留、仅当前工具循环、不回传三档，配有英文、简体及繁体中文说明。配置保存时同步写入枚举和旧布尔值。旧配置保持原意，缺省或 `true` 为全部保留，`false` 为不回传。
+- `AgentLoop` 在含已执行工具的当前助手消息续接模型时，把该消息 ID 放入内存参数。`expandNotices()` 拆出的助手分段沿用此 ID，合成通知与 `<time_reminder>` 沿用独立用户消息。普通对话首发与独立压缩请求没有活跃工具循环 ID。
+- Chat Completions 按助手消息 ID 决定是否回传通用 `reasoning_content`、OpenRouter `reasoning_details` 和 Mistral `thinking`。保留历史正文、`tool_calls`、工具结果与 `tool_call_id`。活跃 ID 不进入出站 Header 或 JSON。Responses API、Claude 与 Gemini 沿用各自的协议。
+
+### 改动文件
+
+- `ai/src/main/java/me/rerere/ai/agent/AgentLoop.kt`
+- `ai/src/main/java/me/rerere/ai/provider/Provider.kt`
+- `ai/src/main/java/me/rerere/ai/provider/ProviderSetting.kt`
+- `ai/src/main/java/me/rerere/ai/provider/providers/openai/ChatCompletionsAPI.kt`
+- `ai/src/test/java/me/rerere/ai/provider/providers/openai/ChatCompletionsRequestMessageTest.kt`
+- `app/src/main/java/me/rerere/rikkahub/ui/pages/setting/components/ProviderConfigure.kt`
+- `app/src/main/res/values/strings.xml`
+- `app/src/main/res/values-zh/strings.xml`
+- `app/src/main/res/values-zh-rTW/strings.xml`
+- `app/src/test/java/me/rerere/rikkahub/data/ai/HomeHistoryReasoningTest.kt`
+- `app/src/test/java/me/rerere/rikkahub/ui/components/richtext/HomeMarkdownNormalizerTest.kt`
+- `docs/HOME_LOG.md`
+
+### 验收清单
+
+- [x] AI 模块通过独立 Kotlin 编译。新增回归及现有 AgentLoop、Chat Completions 消息测试共 43 项通过。
+- [x] 独立 JUnit 运行现有 CI 筛选入口，7 项通过，包含 13 项 HTTP 日志回归与 4 项思考回传回归。
+- [x] OpenAI 设置表单通过针对性 Compose 编译，英文、简体及繁体中文资源通过 AAPT2 编译与独立链接。
+- [ ] Run #21 通过现有 CI 单测闸门、正式签名构建、APK 校验和产物上传。完整 Gradle 构建待 CI 核验。
+- [ ] 覆盖安装 #20，核对旧供应商默认档及原先关闭的配置，验证三档选择在退出重启后保留。核对三套文案和深浅主题。
+- [ ] 在 DeepSeek、Kimi 等兼容供应商中核对普通多轮与同轮连续工具调用的出站 JSON。核对通知插入、审批恢复、压缩续接，以及工具正文、调用 ID 和结果的配对。
+- [ ] 按需核对 OpenRouter 与 Mistral 的思考格式，以及已有 Responses API、Claude、Gemini 的请求。复核阶段 7 与 8.1 的日志开关、脱敏、50 条持久化、来源及同轮分组。
 
 ### 后续排期
 
-- [ ] 阶段 8.2：历史 `reasoning_content` 回传升级三档控制（全部保留 / 仅当前工具循环保留 / 全部不回传）。
 - [ ] 阶段 8.3：开放硬编码记忆与压缩内置提示词编辑入口。
-- `<time_reminder>` 独立合成 `user` 保持原样，以维持缓存稳定与测试兼容。
 
 ### 收尾待办
 

@@ -1154,7 +1154,13 @@
   <string name="setting_model_page_prompt_suggestion">Chat Reply Suggestions</string>
   <string name="setting_model_page_prompt_ocr">OCR Recognition</string>
   <string name="setting_display_page_bubble_opacity_title">Bubble Opacity</string>
-  <string name="setting_provider_page_include_history_reasoning">Include History Reasoning</string>
+  <string name="setting_provider_page_include_history_reasoning">Reasoning replay</string>
+  <string name="setting_provider_page_reasoning_all">Keep all</string>
+  <string name="setting_provider_page_reasoning_current">Tool loop only</string>
+  <string name="setting_provider_page_reasoning_none">Send none</string>
+  <string name="setting_provider_page_reasoning_all_description">Send reasoning from all previous turns and the current tool loop.</string>
+  <string name="setting_provider_page_reasoning_current_description">Omit reasoning from previous turns to save context. Keep it during tool calls within the same turn.</string>
+  <string name="setting_provider_page_reasoning_none_description">Never send reasoning from prior messages in Chat Completions requests.</string>
   <string name="assistant_page_gradient_background">Gradient Background</string>
   <string name="assistant_page_gradient_background_desc">Use a dynamic gradient background on the chat page</string>
   <string name="assistant_page_workspace">Workspace</string>

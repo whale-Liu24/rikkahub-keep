@@ -6,10 +6,11 @@ import me.rerere.bettertext.markdown.MarkdownDocument
 import me.rerere.bettertext.markdown.MarkdownInline
 import me.rerere.bettertext.markdown.MarkdownStreamParser
 import me.rerere.bettertext.markdown.parseMarkdown
+import me.rerere.rikkahub.data.ai.HomeHistoryReasoningTest
+import me.rerere.rikkahub.data.ai.HomeHttpLogStoreTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import me.rerere.rikkahub.data.ai.HomeHttpLogStoreTest
 import org.junit.Test
 import org.junit.runner.JUnitCore
 
@@ -18,6 +19,12 @@ class HomeMarkdownNormalizerTest {
     @Test
     fun runHttpLoggingRegressionTests() {
         val result = JUnitCore.runClasses(HomeHttpLogStoreTest::class.java)
+        assertTrue(result.failures.joinToString("\n") { it.trace }, result.wasSuccessful())
+    }
+
+    @Test
+    fun runHistoryReasoningRegressionTests() {
+        val result = JUnitCore.runClasses(HomeHistoryReasoningTest::class.java)
         assertTrue(result.failures.joinToString("\n") { it.trace }, result.wasSuccessful())
     }
 

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.provider.HistoryReasoningMode
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.ui.OpenRouterReasoningMetadata
 import me.rerere.ai.ui.UIMessage
@@ -23,6 +24,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlin.uuid.Uuid
 
 /**
  * Unit tests for ChatCompletionsAPI message building logic.
@@ -47,7 +49,8 @@ class ChatCompletionsRequestMessageTest {
         val method = ChatCompletionsAPI::class.java.getDeclaredMethod(
             "buildMessages",
             List::class.java,
-            Boolean::class.javaPrimitiveType,
+            HistoryReasoningMode::class.java,
+            Uuid::class.java,
             ReasoningReplayFormat::class.java,
             List::class.java
         )
@@ -55,7 +58,8 @@ class ChatCompletionsRequestMessageTest {
         return method.invoke(
             api,
             messages,
-            includeHistoryReasoning,
+            if (includeHistoryReasoning) HistoryReasoningMode.ALL else HistoryReasoningMode.NONE,
+            null,
             reasoningReplayFormat,
             listOf(Modality.TEXT, Modality.IMAGE)
         ) as JsonArray

@@ -27,6 +27,13 @@ data class OAuthCredential(
 }
 
 @Serializable
+enum class HistoryReasoningMode {
+    ALL,
+    CURRENT_TURN_ONLY,
+    NONE,
+}
+
+@Serializable
 enum class ClaudePromptCacheTtl(val apiValue: String?) {
     @SerialName("5m")
     FIVE_MINUTES(null),
@@ -103,7 +110,11 @@ sealed class ProviderSetting {
         var useResponseApi: Boolean = false,
         var includeHistoryReasoning: Boolean = true,
         var responsesPath: String = "/responses",
+        val historyReasoningMode: HistoryReasoningMode? = null,
     ) : ApiKey() {
+        fun resolvedHistoryReasoningMode(): HistoryReasoningMode =
+            historyReasoningMode ?: if (includeHistoryReasoning) HistoryReasoningMode.ALL else HistoryReasoningMode.NONE
+
         override fun withQuotaQuery(query: QuotaQuery): ApiKey = copy(quotaQuery = query)
 
         override fun copyProvider(

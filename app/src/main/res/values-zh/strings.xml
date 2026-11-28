@@ -1133,7 +1133,13 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_model_page_prompt_suggestion">聊天回复建议</string>
   <string name="setting_model_page_prompt_ocr">OCR识别</string>
   <string name="setting_display_page_bubble_opacity_title">气泡不透明度</string>
-  <string name="setting_provider_page_include_history_reasoning">回传历史思考过程</string>
+  <string name="setting_provider_page_include_history_reasoning">思考过程回传</string>
+  <string name="setting_provider_page_reasoning_all">全部保留</string>
+  <string name="setting_provider_page_reasoning_current">仅当前工具循环</string>
+  <string name="setting_provider_page_reasoning_none">不回传</string>
+  <string name="setting_provider_page_reasoning_all_description">回传所有历史轮次和当前工具循环中的思考过程。</string>
+  <string name="setting_provider_page_reasoning_current_description">剥离旧轮次的思考过程以节省上下文，仅在同一轮工具调用期间保留。</string>
+  <string name="setting_provider_page_reasoning_none_description">Chat Completions 请求均不回传任何消息的思考过程。</string>
   <string name="setting_model_page_fast_model">快速模型</string>
   <string name="setting_model_page_fast_model_desc">用于生成标题、聊天建议以及执行其他快速或后台任务</string>
   <string name="setting_model_page_enable_suggestion">启用聊天建议</string>

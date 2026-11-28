@@ -1090,7 +1090,13 @@
   <string name="setting_model_page_prompt_suggestion">聊天回覆建議</string>
   <string name="setting_model_page_prompt_ocr">OCR 辨識</string>
   <string name="setting_display_page_bubble_opacity_title">氣泡透明度</string>
-  <string name="setting_provider_page_include_history_reasoning">回傳歷史思考過程</string>
+  <string name="setting_provider_page_include_history_reasoning">思考過程回傳</string>
+  <string name="setting_provider_page_reasoning_all">全部保留</string>
+  <string name="setting_provider_page_reasoning_current">僅目前工具循環</string>
+  <string name="setting_provider_page_reasoning_none">不回傳</string>
+  <string name="setting_provider_page_reasoning_all_description">回傳所有歷史輪次和目前工具循環中的思考過程。</string>
+  <string name="setting_provider_page_reasoning_current_description">移除舊輪次的思考過程以節省上下文，僅在同一輪工具呼叫期間保留。</string>
+  <string name="setting_provider_page_reasoning_none_description">Chat Completions 請求均不回傳任何訊息的思考過程。</string>
   <string name="setting_model_page_fast_model">快速模型</string>
   <string name="setting_model_page_fast_model_desc">用於生成標題、聊天建議以及執行其他快速或背景任務</string>
   <string name="setting_model_page_enable_suggestion">啟用聊天建議</string>

@@ -31,6 +31,7 @@ import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
+import me.rerere.ai.provider.HistoryReasoningMode
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
@@ -73,6 +74,7 @@ import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import kotlin.time.Clock
+import kotlin.uuid.Uuid
 
 private const val TAG = "ChatCompletionsAPI"
 
@@ -246,7 +248,8 @@ class ChatCompletionsAPI(
                 "messages",
                 buildMessages(
                     messages = messages,
-                    includeHistoryReasoning = providerSetting.includeHistoryReasoning,
+                    historyReasoningMode = providerSetting.resolvedHistoryReasoningMode(),
+                    activeAssistantMessageId = params.activeAssistantMessageId,
                     reasoningReplayFormat = when (host) {
                         "openrouter.ai" -> ReasoningReplayFormat.OPENROUTER_DETAILS
                         "api.mistral.ai" -> ReasoningReplayFormat.MISTRAL_THINKING_CHUNK
@@ -465,9 +468,10 @@ class ChatCompletionsAPI(
 
     private fun buildMessages(
         messages: List<UIMessage>,
-        includeHistoryReasoning: Boolean = true,
-        reasoningReplayFormat: ReasoningReplayFormat = ReasoningReplayFormat.REASONING_CONTENT,
-        supportInputModalities: List<Modality> = listOf(Modality.TEXT, Modality.IMAGE),
+        historyReasoningMode: HistoryReasoningMode,
+        activeAssistantMessageId: Uuid?,
+        reasoningReplayFormat: ReasoningReplayFormat,
+        supportInputModalities: List<Modality>,
     ) = buildJsonArray {
         val filteredMessages = messages.filter { it.isValidToUpload() }
 
@@ -475,7 +479,11 @@ class ChatCompletionsAPI(
             if (message.role == MessageRole.ASSISTANT) {
                 addAssistantMessages(
                     message = message,
-                    includeReasoning = includeHistoryReasoning,
+                    includeReasoning = when (historyReasoningMode) {
+                        HistoryReasoningMode.ALL -> true
+                        HistoryReasoningMode.CURRENT_TURN_ONLY -> message.id == activeAssistantMessageId
+                        HistoryReasoningMode.NONE -> false
+                    },
                     reasoningReplayFormat = reasoningReplayFormat,
                     supportInputModalities = supportInputModalities,
                 )
