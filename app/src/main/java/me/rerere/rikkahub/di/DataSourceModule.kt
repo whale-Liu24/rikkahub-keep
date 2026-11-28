@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.di
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import io.ktor.client.HttpClient
@@ -10,12 +11,15 @@ import io.pebbletemplates.pebble.PebbleEngine
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import me.rerere.ai.provider.ProviderManager
+import me.rerere.common.android.Logging
 import me.rerere.common.http.AcceptLanguageBuilder
 import me.rerere.mediagen.provider.MediaGenerationManager
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.data.ai.AIRequestInterceptor
 import me.rerere.rikkahub.data.ai.ConversationMetaGenerator
+import me.rerere.rikkahub.data.ai.HomeHttpLogSanitizer
+import me.rerere.rikkahub.data.ai.HomeHttpLogStore
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.ai.MemoryConsolidator
 import me.rerere.rikkahub.data.ai.RequestLoggingInterceptor
@@ -47,6 +51,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.dsl.module
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.io.File
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -167,6 +172,16 @@ val dataSourceModule = module {
         ConversationMetaGenerator(context = get(), providerManager = get(), usageRecorder = get())
     }
 
+    single {
+        HomeHttpLogStore(
+            file = File(get<Context>().noBackupFilesDir, "home-http-logs.jsonl"),
+            scope = get<AppScope>(),
+            publish = Logging::replaceRequestLogs,
+            clearVisibleLogs = Logging::clear,
+            onIoFailure = { Log.w("HomeHttpLogStore", "Could not read or write HTTP log history") },
+        )
+    }
+
     single<OkHttpClient> {
         val settingsStore: SettingsStore = get()
         val acceptLang = AcceptLanguageBuilder.fromAndroid(get())
@@ -231,10 +246,12 @@ val dataSourceModule = module {
                     chain.proceed(request)
                 }
             }
-            .addNetworkInterceptor(RequestLoggingInterceptor())
+            .addNetworkInterceptor(RequestLoggingInterceptor(get()))
             .addInterceptor(AIRequestInterceptor())
-            .addInterceptor(HttpLoggingInterceptor().apply {
-                redactHeader("Proxy-Authorization")
+            .addInterceptor(HttpLoggingInterceptor { line ->
+                HomeHttpLogSanitizer.logcatLine(line)?.let { Log.d("HTTP", it) }
+            }.apply {
+                HomeHttpLogSanitizer.sensitiveHeaderNames.forEach(::redactHeader)
                 level = HttpLoggingInterceptor.Level.HEADERS
             })
             .build()

@@ -32,6 +32,8 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,23 +45,33 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonElement
 import me.rerere.common.android.LogEntry
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.HomeHttpLogStore
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.JsonTree
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.ui.theme.JetbrainsMono
 import me.rerere.rikkahub.utils.JsonInstantPretty
+import org.koin.compose.koinInject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 @Composable
 fun LogPage() {
-    var logs by remember { mutableStateOf(Logging.getRecentLogs()) }
-    var requestLoggingEnabled by remember { mutableStateOf(Logging.isRequestLoggingEnabled()) }
+    val store = koinInject<SettingsStore>()
+    val httpLogStore = koinInject<HomeHttpLogStore>()
+    val scope = rememberCoroutineScope()
+    val settings by store.settingsFlow.collectAsStateWithLifecycle()
+    val logs by Logging.recentLogs.collectAsStateWithLifecycle()
+    val requestLoggingEnabled = !settings.init && settings.displaySetting.httpRequestLoggingEnabled
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -69,10 +81,7 @@ fun LogPage() {
                 navigationIcon = { BackButton() },
                 actions = {
                     IconButton(
-                        onClick = {
-                            Logging.clear()
-                            logs = Logging.getRecentLogs()
-                        }
+                        onClick = httpLogStore::clear
                     ) {
                         Icon(HugeIcons.Delete01, null)
                     }
@@ -88,8 +97,12 @@ fun LogPage() {
             logs = logs,
             requestLoggingEnabled = requestLoggingEnabled,
             onRequestLoggingChange = {
-                requestLoggingEnabled = it
-                Logging.setRequestLoggingEnabled(it)
+                scope.launch {
+                    store.update { current ->
+                        current.copy(displaySetting = current.displaySetting.copy(httpRequestLoggingEnabled = it))
+                    }
+                    Logging.setRequestLoggingEnabled(store.settingsFlow.value.displaySetting.httpRequestLoggingEnabled)
+                }
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -359,18 +372,22 @@ private fun RequestLogDetail(log: LogEntry.RequestLog) {
                             )
                         }
                     }
-                    val jsonElement = remember(body) {
-                        runCatching { JsonInstantPretty.parseToJsonElement(body) }.getOrNull()
+                    val jsonElement by produceState<JsonElement?>(null, body) {
+                        value = withContext(Dispatchers.Default) {
+                            runCatching { JsonInstantPretty.parseToJsonElement(body) }.getOrNull()
+                        }
                     }
-                    if (jsonElement != null) {
+                    val parsedBody = jsonElement
+                    if (parsedBody != null) {
                         JsonTree(
-                            json = jsonElement,
+                            json = parsedBody,
                             modifier = Modifier.padding(top = 4.dp),
-                            initialExpandLevel = 2
+                            initialExpandLevel = if (body.length > 16_384) 0 else 2
                         )
                     } else {
                         Text(
-                            text = body,
+                            text = if (body.length <= 16_384) body
+                            else body.take(16_384) + "\n[preview limited; copy for the stored body]",
                             fontFamily = JetbrainsMono,
                             modifier = Modifier.padding(top = 4.dp)
                         )

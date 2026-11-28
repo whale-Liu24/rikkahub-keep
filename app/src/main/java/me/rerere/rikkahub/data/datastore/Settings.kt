@@ -179,6 +179,7 @@ data class DisplaySetting(
     val enableVolumeKeyScroll: Boolean = false,
     val volumeKeyScrollRatio: Float = 1.0f,
     val conversationSortOrder: ConversationSortOrder = ConversationSortOrder.UPDATE_TIME,
+    val httpRequestLoggingEnabled: Boolean = true,
 )
 
 @Serializable

@@ -319,10 +319,38 @@
 
 ---
 
-## 15. 阶段 7（番外运维）：HTTP 请求日志常开与持久化评估（⏳ 只读摸底中）
+## 15. 阶段 7（#19）：HTTP 请求日志默认常开、全链路脱敏与 50 条滚动持久化（⏳ 待 #19 验收）
 
-- [ ] 核查「记录请求」开关默认关闭与自动重置原因，评估持久化常开方案。
-- [ ] 评估带密钥脱敏与体积上限保护的最近 30 条 HTTP 日志本地持久化方案。
+### 改动摘要
+
+- 「记录请求」写入现有 `display_setting`。覆盖升级时缺失字段默认开启，手动关闭后跨进程保留；启动等真实设置加载后才开始采集。
+- 请求及响应头、URL 和异常在进入日志前脱敏。Logcat 的 HEADERS 拦截器使用同一脱敏规则并限制输出字段。保留本机排查用的脱敏 JSON，超长 Base64 替换为占位字符串。
+- 请求体跳过一次性、双工、非文本、未知长度及超过 4 MiB 的内容。实际读取受同一上限约束，瘦身后正文最多 512 KiB。响应体不读取。详情页在后台解析 JSON，纯文本回退限制预览长度。
+- HTTP 日志在 `noBackupFilesDir/home-http-logs.jsonl` 中保留最近 50 条、最多 8 MiB。单写者异步原子写入，启动按 ID 合并，清空代次淘汰旧请求和迟到的恢复。Logs 页面订阅实时列表，普通文本日志仍只留内存。
+
+### 新增文件
+
+- `app/src/main/java/me/rerere/rikkahub/data/ai/HomeHttpLogSanitizer.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/ai/HomeHttpLogStore.kt`
+- `app/src/test/java/me/rerere/rikkahub/data/ai/HomeHttpLogStoreTest.kt`
+
+### 修改文件
+
+- `app/src/main/java/me/rerere/rikkahub/RikkaHubApp.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/ai/RequestLoggingInterceptor.kt`
+- `app/src/main/java/me/rerere/rikkahub/data/datastore/Settings.kt`
+- `app/src/main/java/me/rerere/rikkahub/di/DataSourceModule.kt`
+- `app/src/main/java/me/rerere/rikkahub/ui/pages/log/LogPage.kt`
+- `app/src/test/java/me/rerere/rikkahub/ui/components/richtext/HomeMarkdownNormalizerTest.kt`（增加日志测试入口，沿用现有 CI 筛选）
+- `common/src/main/java/me/rerere/common/android/Logging.kt`
+- `docs/HOME_LOG.md`
+
+### 验收清单
+
+- [ ] Run #19 通过现有 JVM 单测闸门、签名预检、正式签名构建、APK 校验和产物上传。
+- [ ] 覆盖升级核对首次默认开启，手动关闭后重启仍关闭。打开 Logs 页面时，新请求和启动恢复的历史可实时出现。
+- [ ] 用合成数据核对请求头、响应头、URL、异常与 Logcat 的脱敏。核对含图片的 JSON 仍可展开，大正文有截断标记，流式输出正常。
+- [ ] 核对重启后最多恢复 50 条 HTTP 日志。清空、即时重试和再重启时旧记录不复活，普通文本日志不落盘。
 
 ### 收尾待办
 

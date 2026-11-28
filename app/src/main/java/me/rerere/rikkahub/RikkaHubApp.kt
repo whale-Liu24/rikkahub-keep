@@ -24,7 +24,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import me.rerere.common.android.Logging
 import me.rerere.common.android.appTempFolder
+import me.rerere.rikkahub.data.ai.HomeHttpLogStore
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.FileFolders
@@ -79,6 +81,14 @@ class RikkaHubApp : Application() {
             androidContext(this@RikkaHubApp)
             workManagerFactory()
             modules(appModule, viewModelModule, dataSourceModule, repositoryModule)
+        }
+        get<HomeHttpLogStore>()
+        get<AppScope>().launch {
+            val store = get<SettingsStore>()
+            Logging.setRequestLoggingEnabled(store.awaitLoaded().displaySetting.httpRequestLoggingEnabled)
+            store.settingsFlow.collect { settings ->
+                Logging.setRequestLoggingEnabled(settings.displaySetting.httpRequestLoggingEnabled)
+            }
         }
         this.createNotificationChannel()
 

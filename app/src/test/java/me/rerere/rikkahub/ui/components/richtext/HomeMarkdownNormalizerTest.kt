@@ -9,9 +9,18 @@ import me.rerere.bettertext.markdown.parseMarkdown
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import me.rerere.rikkahub.data.ai.HomeHttpLogStoreTest
 import org.junit.Test
+import org.junit.runner.JUnitCore
 
 class HomeMarkdownNormalizerTest {
+    // The release workflow filters this class by name.
+    @Test
+    fun runHttpLoggingRegressionTests() {
+        val result = JUnitCore.runClasses(HomeHttpLogStoreTest::class.java)
+        assertTrue(result.failures.joinToString("\n") { it.trace }, result.wasSuccessful())
+    }
+
     @Test
     fun repairsSymbolBoundariesAndKeepsValidCjkClosingDelimiter() {
         assertRendered("**——（（……测试甲……测试乙……））**🌕", "——（（……测试甲……测试乙……））" to true, "🌕" to false)

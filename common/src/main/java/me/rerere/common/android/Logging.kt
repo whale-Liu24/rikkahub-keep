@@ -1,5 +1,8 @@
 package me.rerere.common.android
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import kotlin.uuid.Uuid
 
@@ -36,17 +39,22 @@ sealed class LogEntry {
 }
 
 object Logging {
-    private val recentLogs = arrayListOf<LogEntry>()
+    private val mutableLogs = MutableStateFlow<List<LogEntry>>(emptyList())
+    val recentLogs = mutableLogs.asStateFlow()
+
     @Volatile
     private var requestLoggingEnabled = false
 
     fun log(tag: String, message: String) {
-        addLog(LogEntry.TextLog(tag = tag, message = message))
+        val entry = LogEntry.TextLog(tag = tag, message = message)
+        mutableLogs.update { current ->
+            val recentText = (listOf(entry) + current.filterIsInstance<LogEntry.TextLog>()).take(MAX_RECENT_LOGS)
+            recentText + current.filterIsInstance<LogEntry.RequestLog>()
+        }
     }
 
-    fun logRequest(entry: LogEntry.RequestLog) {
-        if (!requestLoggingEnabled) return
-        addLog(entry)
+    fun replaceRequestLogs(requests: List<LogEntry.RequestLog>) {
+        mutableLogs.update { current -> current.filterIsInstance<LogEntry.TextLog>() + requests }
     }
 
     fun isRequestLoggingEnabled(): Boolean = requestLoggingEnabled
@@ -55,36 +63,13 @@ object Logging {
         requestLoggingEnabled = enabled
     }
 
-    private fun addLog(entry: LogEntry) {
-        synchronized(recentLogs) {
-            recentLogs.add(0, entry)
-            if (recentLogs.size > MAX_RECENT_LOGS) {
-                recentLogs.removeLastOrNull()
-            }
-        }
-    }
+    fun getRecentLogs(): List<LogEntry> = recentLogs.value.sortedByDescending { it.timestamp }
 
-    fun getRecentLogs(): List<LogEntry> {
-        synchronized(recentLogs) {
-            return recentLogs.toList()
-        }
-    }
+    fun getTextLogs(): List<LogEntry.TextLog> = recentLogs.value.filterIsInstance<LogEntry.TextLog>()
 
-    fun getTextLogs(): List<LogEntry.TextLog> {
-        synchronized(recentLogs) {
-            return recentLogs.filterIsInstance<LogEntry.TextLog>()
-        }
-    }
-
-    fun getRequestLogs(): List<LogEntry.RequestLog> {
-        synchronized(recentLogs) {
-            return recentLogs.filterIsInstance<LogEntry.RequestLog>()
-        }
-    }
+    fun getRequestLogs(): List<LogEntry.RequestLog> = recentLogs.value.filterIsInstance<LogEntry.RequestLog>()
 
     fun clear() {
-        synchronized(recentLogs) {
-            recentLogs.clear()
-        }
+        mutableLogs.value = emptyList()
     }
 }

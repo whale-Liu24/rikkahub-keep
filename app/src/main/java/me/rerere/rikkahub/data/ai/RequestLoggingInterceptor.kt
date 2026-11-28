@@ -4,71 +4,53 @@ import me.rerere.common.android.LogEntry
 import me.rerere.common.android.Logging
 import okhttp3.Interceptor
 import okhttp3.Response
-import okio.Buffer
+import java.io.IOException
 
-class RequestLoggingInterceptor : Interceptor {
+internal class RequestLoggingInterceptor(private val store: HomeHttpLogStore) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        if (!Logging.isRequestLoggingEnabled()) {
-            return chain.proceed(chain.request())
-        }
-
         val request = chain.request()
-        val startTime = System.currentTimeMillis()
+        if (!Logging.isRequestLoggingEnabled()) return chain.proceed(request)
 
-        val requestHeaders = request.headers.toMap()
-        val requestBody = request.body?.let { body ->
-            val buffer = Buffer()
-            body.writeTo(buffer)
-            buffer.readUtf8()
-        }
-
-        val response: Response
-        var error: String? = null
-
-        try {
-            response = chain.proceed(request)
-        } catch (e: Exception) {
-            error = e.message
-            Logging.logRequest(
-                LogEntry.RequestLog(
-                    tag = "HTTP",
-                    url = request.url.toString(),
-                    method = request.method,
-                    requestHeaders = requestHeaders,
-                    requestBody = requestBody,
-                    error = error
-                )
-            )
-            throw e
-        }
-
-        val durationMs = System.currentTimeMillis() - startTime
-        val responseHeaders = response.headers.toMap()
-
-        Logging.logRequest(
-            LogEntry.RequestLog(
-                tag = "HTTP",
-                url = request.url.toString(),
-                method = request.method,
-                requestHeaders = requestHeaders,
-                requestBody = requestBody,
-                responseCode = response.code,
-                responseHeaders = responseHeaders,
-                durationMs = durationMs,
-                error = error
-            )
+        val epoch = store.currentEpoch()
+        val started = System.nanoTime()
+        val sanitizer = HomeHttpLogSanitizer
+        val entry = LogEntry.RequestLog(
+            tag = "HTTP",
+            url = sanitizer.url(request.url),
+            method = request.method,
+            requestHeaders = sanitizer.headers(request.headers),
+            requestBody = sanitizer.captureBody(request.body),
         )
 
+        val response = try {
+            chain.proceed(request)
+        } catch (error: IOException) {
+            if (Logging.isRequestLoggingEnabled()) {
+                store.record(
+                    entry.copy(
+                        timestamp = System.currentTimeMillis(),
+                        durationMs = elapsedMillis(started),
+                        error = "${error.javaClass.simpleName}: ${sanitizer.error(error.message)}",
+                    ),
+                    epoch,
+                )
+            }
+            throw error
+        }
+
+        if (Logging.isRequestLoggingEnabled()) {
+            store.record(
+                entry.copy(
+                    timestamp = System.currentTimeMillis(),
+                    responseCode = response.code,
+                    responseHeaders = sanitizer.headers(response.headers),
+                    durationMs = elapsedMillis(started),
+                ),
+                epoch,
+            )
+        }
         return response
     }
 
-    private fun okhttp3.Headers.toMap(): Map<String, String> {
-        return names().associateWith { name ->
-            if (name.equals("Proxy-Authorization", ignoreCase = true)) {
-                "██"
-            } else {
-                get(name) ?: ""
-            }
-        }
-    }
+    private fun elapsedMillis(started: Long): Long = (System.nanoTime() - started) / 1_000_000
 }
